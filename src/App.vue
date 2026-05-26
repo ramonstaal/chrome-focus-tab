@@ -1,0 +1,1365 @@
+<script setup lang="ts">
+import { computed, onMounted, onUnmounted, ref, watch, watchEffect } from 'vue'
+import Button from 'primevue/button'
+import Checkbox from 'primevue/checkbox'
+import Dialog from 'primevue/dialog'
+import InputText from 'primevue/inputtext'
+import {
+  AlarmClock,
+  Check,
+  Clock3,
+  ImagePlus,
+  ListTodo,
+  Pause,
+  Play,
+  Plus,
+  BarChart3,
+  Square,
+  Settings,
+  Trash2,
+} from '@lucide/vue'
+import CountdownClock from './components/CountdownClock.vue'
+import MinimalConfirmDialog from './components/MinimalConfirmDialog.vue'
+import MetricsCalendar from './components/MetricsCalendar.vue'
+import TimeTracking from './components/TimeTracking.vue'
+import TimeTrackingStartDialog from './components/TimeTrackingStartDialog.vue'
+import TaskEditDialog from './components/TaskEditDialog.vue'
+import TodoCard from './components/TodoCard.vue'
+import {
+  DEFAULT_STATUS,
+  normalizeTodos,
+  type Subtodo,
+  type TaskStatus,
+  type Todo,
+} from './todos'
+import {
+  clearBreakAlarm,
+  clearTimerAlarm,
+  clearWallAlarm,
+  emptyTimerState,
+  hasPausedFocusRemaining,
+  formatWallAlarmTime,
+  getStorageTimer,
+  getWallAlarm,
+  nextWallAlarmTimestamp,
+  normalizeTimerState,
+  parseWallAlarmTime,
+  scheduleBreakAlarm,
+  scheduleTimerAlarm,
+  scheduleWallAlarm,
+  setStorageTimer,
+  setWallAlarm,
+  TIMER_STORAGE_KEY,
+  type BreakKind,
+  type TimerKind,
+  type TimerState,
+  type WallAlarm,
+} from './chromeAlarms'
+import { getAppSettings, pickRandomCustomBackground, setAppSettings, type AppSettings } from './appSettings'
+import { addArchivedTodo } from './archivedTodos'
+import { recordCompletedSubtodoAction, recordCompletedTodoAction } from './completedActions'
+import { recordCompletedFocusBlock } from './focusMetrics'
+import { compressBackgroundImage } from './utils/backgroundImage'
+import { formatDuration } from './utils/duration'
+import { playSchoolbell, playTimerBeep } from './utils/sounds'
+import { recordBreakFromBreakState, recordStandaloneBreakSession } from './breakRecords'
+import { isTimeTrackingActive, startTimeTracking } from './timeTracking'
+
+type ViewName = 'clock' | 'todos' | 'settings' | 'metrics'
+
+interface BackgroundPreset {
+  label: string
+  value: string
+  css: string
+}
+
+type EditTarget =
+  | { kind: 'todo'; todoId: string }
+  | { kind: 'subtodo'; todoId: string; subtodoId: string }
+
+const TODO_KEY = 'focus-new-tab.todos'
+const LEGACY_TIMER_KEY = 'focus-new-tab.timer'
+const DEFAULT_DOCUMENT_TITLE = 'Focus Todo'
+
+const defaultTodos: Todo[] = [
+  {
+    id: crypto.randomUUID(),
+    title: 'Plan the first deep-work task',
+    status: DEFAULT_STATUS,
+    createdAt: Date.now(),
+    subtodos: [
+      { id: crypto.randomUUID(), title: 'Break it into small steps', status: DEFAULT_STATUS },
+      {
+        id: crypto.randomUUID(),
+        title: 'Start a 30 minute focus session',
+        status: DEFAULT_STATUS,
+      },
+    ],
+  },
+]
+
+const backgroundPresets: BackgroundPreset[] = [
+  {
+    label: 'Alpine Dawn',
+    value: 'alpine',
+    css: 'radial-gradient(circle at 52% 22%, rgba(255,255,255,.2), transparent 22%), linear-gradient(160deg, #364158 0%, #6f7082 34%, #d29072 56%, #101827 100%)',
+  },
+  {
+    label: 'Deep Glacier',
+    value: 'glacier',
+    css: 'radial-gradient(circle at 75% 16%, rgba(155,211,255,.3), transparent 24%), linear-gradient(150deg, #0f172a 0%, #24425e 44%, #0b101c 100%)',
+  },
+  {
+    label: 'Warm Dusk',
+    value: 'dusk',
+    css: 'radial-gradient(circle at 78% 28%, rgba(255,196,132,.38), transparent 24%), linear-gradient(145deg, #1f2540 0%, #77556f 45%, #111827 100%)',
+  },
+]
+
+const timerOptions = [
+  { label: '15 min', value: 15 },
+  { label: '30 min', value: 30 },
+  { label: '60 min', value: 60 },
+  { label: '120 min', value: 120 },
+]
+
+const view = ref<ViewName>('clock')
+const todos = ref<Todo[]>(loadTodos())
+const settings = ref<AppSettings>({ background: 'alpine', customBackgrounds: [] })
+const displayedCustomBackground = ref('')
+const timer = ref<TimerState>(emptyTimerState())
+const timerRevision = ref(0)
+const wallAlarm = ref<WallAlarm>({ enabled: false, hour: 7, minute: 0 })
+const wallAlarmTime = ref('07:00')
+const now = ref(Date.now())
+const selectedFocusMinutes = ref(30)
+const newTodoTitle = ref('')
+const settingsOpen = ref(false)
+const alarmOpen = ref(false)
+const restartConfirmOpen = ref(false)
+const resetConfirmOpen = ref(false)
+const timeTrackingPromptOpen = ref(false)
+const pendingFocusMinutes = ref<number | null>(null)
+const pendingTimerStart = ref<{ kind: TimerKind; minutes: number } | null>(null)
+const timeTrackingRef = ref<InstanceType<typeof TimeTracking> | null>(null)
+const metricsRef = ref<InstanceType<typeof MetricsCalendar> | null>(null)
+const editTarget = ref<EditTarget | null>(null)
+const editDialogOpen = computed({
+  get: () => editTarget.value !== null,
+  set: (open) => {
+    if (!open) {
+      editTarget.value = null
+    }
+  },
+})
+
+const editingTodo = computed<Todo | null>(() => {
+  const target = editTarget.value
+
+  if (!target) {
+    return null
+  }
+
+  return todos.value.find((todo) => todo.id === target.todoId) ?? null
+})
+
+const editingSubtodo = computed<Subtodo | null>(() => {
+  const target = editTarget.value
+
+  if (!target || target.kind !== 'subtodo' || !editingTodo.value) {
+    return null
+  }
+
+  return editingTodo.value.subtodos.find((subtodo) => subtodo.id === target.subtodoId) ?? null
+})
+
+const editingTitle = computed(() => {
+  if (editTarget.value?.kind === 'subtodo') {
+    return editingSubtodo.value?.title ?? ''
+  }
+
+  return editingTodo.value?.title ?? ''
+})
+
+const editingStatus = computed<TaskStatus>(() => {
+  if (editTarget.value?.kind === 'subtodo') {
+    return editingSubtodo.value?.status ?? DEFAULT_STATUS
+  }
+
+  return editingTodo.value?.status ?? DEFAULT_STATUS
+})
+
+const editingKind = computed<'todo' | 'subtodo'>(() =>
+  editTarget.value?.kind === 'subtodo' ? 'subtodo' : 'todo',
+)
+
+const pendingFocusEndLabel = computed(() => {
+  const minutes = pendingFocusMinutes.value
+
+  if (!minutes) {
+    return ''
+  }
+
+  const endsAt = now.value + minutes * 60_000
+
+  return new Intl.DateTimeFormat('en', {
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  }).format(endsAt)
+})
+let clockInterval: number | undefined
+
+const currentPreset = computed(() => {
+  return backgroundPresets.find((preset) => preset.value === settings.value.background)
+})
+
+const backgroundStyle = computed(() => {
+  if (settings.value.background === 'custom' && displayedCustomBackground.value) {
+    return `url("${displayedCustomBackground.value}")`
+  }
+
+  return currentPreset.value?.css ?? backgroundPresets[0].css
+})
+
+const currentTime = computed(() => {
+  return new Intl.DateTimeFormat('en', {
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  }).format(now.value)
+})
+
+const currentDate = computed(() => {
+  return new Intl.DateTimeFormat('en', {
+    weekday: 'long',
+    day: '2-digit',
+    month: 'long',
+    year: 'numeric',
+  }).format(now.value)
+})
+
+const onBreak = computed(() => Boolean(timer.value.break?.active))
+
+const mainRemainingMs = computed(() => {
+  if (onBreak.value || timer.value.pausedForBreak) {
+    return timer.value.durationMs
+  }
+
+  if (timer.value.active) {
+    return Math.max(0, timer.value.endsAt - now.value)
+  }
+
+  if (hasPausedFocusRemaining(timer.value)) {
+    return timer.value.durationMs
+  }
+
+  return selectedFocusMinutes.value * 60_000
+})
+
+const breakRemainingMs = computed(() => {
+  if (!timer.value.break?.active) {
+    return 0
+  }
+
+  return Math.max(0, timer.value.break.endsAt - now.value)
+})
+
+const mainEndsAtMs = computed(() => {
+  if (onBreak.value) {
+    return 0
+  }
+
+  if (timer.value.active && timer.value.endsAt > 0) {
+    return timer.value.endsAt
+  }
+
+  if (hasPausedFocusRemaining(timer.value)) {
+    return now.value + timer.value.durationMs
+  }
+
+  return 0
+})
+
+const breakEndsAtMs = computed(() => {
+  if (!timer.value.break?.active) {
+    return 0
+  }
+
+  return timer.value.break.endsAt
+})
+
+const mainTimerPaused = computed(() => onBreak.value && timer.value.pausedForBreak)
+
+const canPauseTimer = computed(() => !onBreak.value && timer.value.active)
+
+const canResumeTimer = computed(
+  () => !onBreak.value && !timer.value.active && isTimerSessionActive() && mainRemainingMs.value > 0,
+)
+
+const showPanelTimerControls = computed(
+  () => !onBreak.value && (canPauseTimer.value || canResumeTimer.value || isTimerSessionActive()),
+)
+
+const activeFocusMinutes = computed(() => {
+  if (timer.value.kind !== 'Focus') {
+    return null
+  }
+
+  const focusSessionRunning =
+    timer.value.active || onBreak.value || hasPausedFocusRemaining(timer.value)
+
+  if (!focusSessionRunning) {
+    return null
+  }
+
+  const plannedMs = timer.value.focusPlannedMs
+
+  if (plannedMs && plannedMs > 0) {
+    return Math.round(plannedMs / 60_000)
+  }
+
+  return null
+})
+
+const showCountdownInHero = computed(() => {
+  return timer.value.active || onBreak.value || hasPausedFocusRemaining(timer.value)
+})
+
+const heroEyebrow = computed(() => {
+  if (onBreak.value) {
+    return 'Focus paused'
+  }
+
+  return timer.value.active ? timer.value.kind : currentDate.value
+})
+
+const completedTodos = computed(
+  () => todos.value.filter((todo) => todo.status === 'done').length,
+)
+const openTodos = computed(() => todos.value.length - completedTodos.value)
+
+const wallAlarmDisplay = computed(() => formatWallAlarmTime(wallAlarm.value.hour, wallAlarm.value.minute))
+
+const documentTitle = computed(() => {
+  if (onBreak.value) {
+    return `${formatDuration(breakRemainingMs.value)} · ${timer.value.break?.kind ?? 'Break'}`
+  }
+
+  if (timer.value.active) {
+    return `${formatDuration(mainRemainingMs.value)} · ${timer.value.kind}`
+  }
+
+  return `${currentTime.value} · ${DEFAULT_DOCUMENT_TITLE}`
+})
+
+watchEffect(() => {
+  document.title = documentTitle.value
+})
+
+watch(view, (nextView) => {
+  if (nextView === 'metrics') {
+    void metricsRef.value?.reload()
+  }
+})
+
+const nextWallAlarmLabel = computed(() => {
+  if (!wallAlarm.value.enabled) {
+    return ''
+  }
+
+  const when = nextWallAlarmTimestamp(wallAlarm.value.hour, wallAlarm.value.minute, now.value)
+  const formatted = new Intl.DateTimeFormat('en', {
+    weekday: 'short',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  }).format(when)
+
+  return `Next alarm at ${formatted}`
+})
+
+function handleStorageChange(
+  changes: Record<string, chrome.storage.StorageChange>,
+  areaName: chrome.storage.AreaName,
+) {
+  if (areaName !== 'local' || !changes[TIMER_STORAGE_KEY]?.newValue) {
+    return
+  }
+
+  timer.value = normalizeTimerState(changes[TIMER_STORAGE_KEY].newValue as TimerState)
+}
+
+onMounted(() => {
+  tick()
+  clockInterval = window.setInterval(tick, 1000)
+
+  if (typeof chrome !== 'undefined' && chrome.storage?.onChanged) {
+    chrome.storage.onChanged.addListener(handleStorageChange)
+  }
+
+  void initializeApp()
+})
+
+onUnmounted(() => {
+  if (clockInterval) {
+    window.clearInterval(clockInterval)
+  }
+
+  if (typeof chrome !== 'undefined' && chrome.storage?.onChanged) {
+    chrome.storage.onChanged.removeListener(handleStorageChange)
+  }
+
+  document.title = DEFAULT_DOCUMENT_TITLE
+})
+
+function refreshDisplayedCustomBackground() {
+  if (settings.value.background === 'custom' && settings.value.customBackgrounds.length > 0) {
+    displayedCustomBackground.value = pickRandomCustomBackground(settings.value.customBackgrounds)
+    return
+  }
+
+  displayedCustomBackground.value = ''
+}
+
+async function initializeApp() {
+  settings.value = await getAppSettings()
+  refreshDisplayedCustomBackground()
+  await hydrateTimer()
+  await hydrateWallAlarm()
+  tick()
+}
+
+function loadJson<T>(key: string, fallback: T): T {
+  const raw = localStorage.getItem(key)
+
+  if (!raw) {
+    return fallback
+  }
+
+  try {
+    return JSON.parse(raw) as T
+  } catch {
+    return fallback
+  }
+}
+
+function loadTodos(): Todo[] {
+  const raw = localStorage.getItem(TODO_KEY)
+
+  if (!raw) {
+    return defaultTodos.map((todo) => ({ ...todo, subtodos: todo.subtodos.map((s) => ({ ...s })) }))
+  }
+
+  try {
+    const parsed = JSON.parse(raw) as unknown
+    return normalizeTodos(parsed)
+  } catch {
+    return defaultTodos.map((todo) => ({ ...todo, subtodos: todo.subtodos.map((s) => ({ ...s })) }))
+  }
+}
+
+function saveTodos() {
+  localStorage.setItem(TODO_KEY, JSON.stringify(todos.value))
+}
+
+function handleTaskStatusChange(
+  todo: Todo,
+  event:
+    | { kind: 'todo'; oldStatus: TaskStatus; newStatus: TaskStatus }
+    | { kind: 'subtodo'; subtodoId: string; oldStatus: TaskStatus; newStatus: TaskStatus },
+) {
+  saveTodos()
+
+  const becameDone = event.newStatus === 'done' && event.oldStatus !== 'done'
+
+  if (!becameDone) {
+    return
+  }
+
+  if (event.kind === 'todo') {
+    void recordCompletedTodoAction({
+      todoId: todo.id,
+      title: todo.title,
+    })
+    return
+  }
+
+  const subtodo = todo.subtodos.find((entry) => entry.id === event.subtodoId)
+
+  if (!subtodo) {
+    return
+  }
+
+  void recordCompletedSubtodoAction({
+    todoId: todo.id,
+    subtodoId: subtodo.id,
+    title: subtodo.title,
+  })
+}
+
+async function saveSettings() {
+  await setAppSettings(settings.value)
+}
+
+async function saveTimer() {
+  await setStorageTimer(timer.value)
+}
+
+async function hydrateTimer() {
+  const revisionAtStart = timerRevision.value
+  const stored = await getStorageTimer()
+  const legacy = loadJson<TimerState | null>(LEGACY_TIMER_KEY, null)
+
+  if (revisionAtStart !== timerRevision.value) {
+    return
+  }
+
+  if (stored) {
+    timer.value = stored
+  } else if (legacy) {
+    timer.value = normalizeTimerState(legacy)
+    await saveTimer()
+    localStorage.removeItem(LEGACY_TIMER_KEY)
+  }
+
+  if (revisionAtStart !== timerRevision.value) {
+    return
+  }
+
+  if (timer.value.break?.active && timer.value.break.endsAt <= Date.now()) {
+    await endBreak(false)
+    return
+  }
+
+  if (timer.value.active && timer.value.endsAt <= Date.now()) {
+    await finalizeTimerExpiry(false)
+    return
+  }
+
+  if (timer.value.break?.active) {
+    await scheduleBreakAlarm(timer.value.break.endsAt)
+    return
+  }
+
+  if (timer.value.active) {
+    await scheduleTimerAlarm(timer.value.endsAt)
+  }
+}
+
+async function hydrateWallAlarm() {
+  const stored = await getWallAlarm()
+  wallAlarm.value = stored
+  wallAlarmTime.value = formatWallAlarmTime(stored.hour, stored.minute)
+
+  if (stored.enabled) {
+    await scheduleWallAlarm(stored.hour, stored.minute)
+  }
+}
+
+function tick() {
+  now.value = Date.now()
+
+  if (timer.value.break?.active && timer.value.break.endsAt <= now.value) {
+    void endBreak(true)
+    return
+  }
+
+  if (timer.value.active && timer.value.endsAt <= now.value) {
+    void finalizeTimerExpiry(true)
+  }
+}
+
+async function finalizeTimerExpiry(playSound: boolean) {
+  const completedSession = { ...timer.value }
+
+  timer.value = emptyTimerState()
+  await clearTimerAlarm()
+  await clearBreakAlarm()
+  await saveTimer()
+
+  if (completedSession.kind === 'Short break' || completedSession.kind === 'Long break') {
+    await recordStandaloneBreakSession(completedSession, completedSession.endsAt || Date.now())
+  } else {
+    await recordCompletedFocusBlock(completedSession)
+  }
+
+  if (playSound) {
+    playTimerBeep()
+  }
+}
+
+function isTimerSessionActive(): boolean {
+  return timer.value.active || onBreak.value || hasPausedFocusRemaining(timer.value)
+}
+
+function isFocusSessionInProgress(): boolean {
+  if (timer.value.kind !== 'Focus' || onBreak.value) {
+    return false
+  }
+
+  if (timer.value.active) {
+    return true
+  }
+
+  return hasPausedFocusRemaining(timer.value)
+}
+
+async function startBreakDuringFocus(kind: BreakKind, minutes: number) {
+  timerRevision.value += 1
+
+  const mainRemaining = timer.value.active
+    ? Math.max(0, timer.value.endsAt - Date.now())
+    : timer.value.durationMs
+
+  const durationMs = minutes * 60_000
+  const startedAt = Date.now()
+  const endsAt = startedAt + durationMs
+
+  timer.value = normalizeTimerState({
+    active: false,
+    kind: 'Focus',
+    durationMs: mainRemaining,
+    endsAt: 0,
+    pausedForBreak: true,
+    focusPlannedMs: timer.value.focusPlannedMs,
+    sessionStartedAt: timer.value.sessionStartedAt,
+    break: {
+      active: true,
+      kind,
+      durationMs,
+      endsAt,
+      startedAt,
+    },
+  })
+
+  await clearTimerAlarm()
+  await saveTimer()
+  await scheduleBreakAlarm(endsAt)
+}
+
+async function endBreak(playSound: boolean) {
+  const activeBreak = timer.value.break
+
+  if (!activeBreak?.active) {
+    return
+  }
+
+  await recordBreakFromBreakState(activeBreak)
+
+  timerRevision.value += 1
+  const mainRemaining = timer.value.durationMs
+
+  timer.value = normalizeTimerState({
+    active: mainRemaining > 0,
+    kind: 'Focus',
+    durationMs: mainRemaining,
+    endsAt: mainRemaining > 0 ? Date.now() + mainRemaining : 0,
+    pausedForBreak: false,
+    focusPlannedMs: timer.value.focusPlannedMs,
+    break: null,
+  })
+
+  await clearBreakAlarm()
+  await saveTimer()
+
+  if (timer.value.active) {
+    await scheduleTimerAlarm(timer.value.endsAt)
+  }
+
+  if (playSound) {
+    playSchoolbell()
+  }
+}
+
+async function endBreakEarly() {
+  await endBreak(false)
+}
+
+function addTodo() {
+  const title = newTodoTitle.value.trim()
+
+  if (!title) {
+    return
+  }
+
+  todos.value.unshift({
+    id: crypto.randomUUID(),
+    title,
+    status: DEFAULT_STATUS,
+    createdAt: Date.now(),
+    subtodos: [],
+  })
+  newTodoTitle.value = ''
+  saveTodos()
+}
+
+function removeTodo(todoId: string) {
+  todos.value = todos.value.filter((todo) => todo.id !== todoId)
+  saveTodos()
+}
+
+function isTodoFullyComplete(todo: Todo): boolean {
+  if (todo.status !== 'done') {
+    return false
+  }
+
+  return todo.subtodos.every((subtodo) => subtodo.status === 'done')
+}
+
+async function archiveTodo(todo: Todo) {
+  if (!isTodoFullyComplete(todo)) {
+    return
+  }
+
+  const archivedAt = Date.now()
+
+  await addArchivedTodo({
+    id: todo.id,
+    title: todo.title,
+    subtodos: todo.subtodos.map((subtodo) => ({ title: subtodo.title })),
+    archivedAt,
+  })
+
+  void recordCompletedTodoAction({
+    todoId: todo.id,
+    title: todo.title,
+    completedAt: archivedAt,
+  })
+
+  for (const subtodo of todo.subtodos) {
+    void recordCompletedSubtodoAction({
+      todoId: todo.id,
+      subtodoId: subtodo.id,
+      title: subtodo.title,
+      completedAt: archivedAt,
+    })
+  }
+
+  removeTodo(todo.id)
+}
+
+function openEditDialog(todoId: string, target: { kind: 'todo' } | { kind: 'subtodo'; subtodoId: string }) {
+  if (target.kind === 'todo') {
+    editTarget.value = { kind: 'todo', todoId }
+  } else {
+    editTarget.value = { kind: 'subtodo', todoId, subtodoId: target.subtodoId }
+  }
+}
+
+function handleEditSave(payload: { title: string; status: TaskStatus }) {
+  const target = editTarget.value
+  const todo = editingTodo.value
+
+  if (!target || !todo) {
+    return
+  }
+
+  if (target.kind === 'subtodo') {
+    const subtodo = todo.subtodos.find((entry) => entry.id === target.subtodoId)
+
+    if (!subtodo) {
+      return
+    }
+
+    const oldStatus = subtodo.status
+    subtodo.title = payload.title
+    subtodo.status = payload.status
+    handleTaskStatusChange(todo, {
+      kind: 'subtodo',
+      subtodoId: subtodo.id,
+      oldStatus,
+      newStatus: payload.status,
+    })
+    return
+  }
+
+  const oldStatus = todo.status
+  todo.title = payload.title
+  todo.status = payload.status
+  handleTaskStatusChange(todo, {
+    kind: 'todo',
+    oldStatus,
+    newStatus: payload.status,
+  })
+}
+
+function timerSessionLabel(kind: TimerKind, minutes: number): string {
+  if (kind === 'Focus') {
+    return `${minutes} min focus`
+  }
+
+  if (kind === 'Short break') {
+    return 'short break'
+  }
+
+  return 'long break'
+}
+
+const pendingTimerSessionLabel = computed(() => {
+  const pending = pendingTimerStart.value
+
+  if (!pending) {
+    return 'session'
+  }
+
+  return timerSessionLabel(pending.kind, pending.minutes)
+})
+
+function requestFocusStart(minutes: number) {
+  selectedFocusMinutes.value = minutes
+
+  if (isTimerSessionActive()) {
+    pendingFocusMinutes.value = minutes
+    restartConfirmOpen.value = true
+    return
+  }
+
+  void requestTimerStart('Focus', minutes)
+}
+
+async function requestTimerStart(kind: TimerKind, minutes: number) {
+  if (!(await isTimeTrackingActive())) {
+    pendingTimerStart.value = { kind, minutes }
+    timeTrackingPromptOpen.value = true
+    return
+  }
+
+  await startTimer(kind, minutes)
+}
+
+async function handleTimeTrackingPromptSkip() {
+  const pending = pendingTimerStart.value
+  pendingTimerStart.value = null
+
+  if (!pending) {
+    return
+  }
+
+  await startTimer(pending.kind, pending.minutes)
+}
+
+async function handleTimeTrackingPromptStart(payload: { label: string; comment: string }) {
+  const pending = pendingTimerStart.value
+  pendingTimerStart.value = null
+
+  if (!pending) {
+    return
+  }
+
+  await startTimeTracking(payload)
+  await timeTrackingRef.value?.refreshState()
+  await startTimer(pending.kind, pending.minutes)
+}
+
+function cancelFocusRestart() {
+  restartConfirmOpen.value = false
+  pendingFocusMinutes.value = null
+}
+
+async function confirmFocusRestart() {
+  const minutes = pendingFocusMinutes.value
+  restartConfirmOpen.value = false
+  pendingFocusMinutes.value = null
+
+  if (minutes) {
+    await requestTimerStart('Focus', minutes)
+  }
+}
+
+async function startTimer(kind: TimerKind, minutes: number) {
+  if (kind !== 'Focus' && isFocusSessionInProgress()) {
+    await startBreakDuringFocus(kind, minutes)
+    return
+  }
+
+  if (kind === 'Focus') {
+    selectedFocusMinutes.value = minutes
+  }
+
+  timerRevision.value += 1
+  const durationMs = minutes * 60_000
+  const startedAt = Date.now()
+  const endsAt = startedAt + durationMs
+
+  timer.value = normalizeTimerState({
+    active: true,
+    kind,
+    durationMs,
+    endsAt,
+    pausedForBreak: false,
+    break: null,
+    focusPlannedMs: durationMs,
+    sessionStartedAt: startedAt,
+  })
+
+  await clearBreakAlarm()
+  await saveTimer()
+  await scheduleTimerAlarm(timer.value.endsAt)
+}
+
+async function pauseTimer() {
+  if (onBreak.value) {
+    return
+  }
+
+  timer.value = {
+    ...timer.value,
+    active: false,
+    durationMs: mainRemainingMs.value,
+    endsAt: 0,
+  }
+  await clearTimerAlarm()
+  await saveTimer()
+}
+
+async function resumeTimer() {
+  if (onBreak.value) {
+    return
+  }
+
+  timer.value = {
+    ...timer.value,
+    active: true,
+    endsAt: Date.now() + timer.value.durationMs,
+  }
+  await saveTimer()
+  await scheduleTimerAlarm(timer.value.endsAt)
+}
+
+function requestReset() {
+  if (!isTimerSessionActive()) {
+    return
+  }
+
+  resetConfirmOpen.value = true
+}
+
+async function resetTimer() {
+  const session = { ...timer.value }
+  const endedAt = Date.now()
+
+  if (session.break?.active) {
+    await recordBreakFromBreakState(session.break, endedAt)
+    await recordCompletedFocusBlock(session, endedAt)
+  } else if (session.kind === 'Short break' || session.kind === 'Long break') {
+    if (session.active || session.durationMs > 0) {
+      await recordStandaloneBreakSession(session, endedAt)
+    }
+  } else if (session.kind === 'Focus') {
+    await recordCompletedFocusBlock(session, endedAt)
+  }
+
+  timer.value = emptyTimerState()
+  await clearTimerAlarm()
+  await clearBreakAlarm()
+  await saveTimer()
+}
+
+async function confirmReset() {
+  await resetTimer()
+}
+
+async function updateWallAlarmTime() {
+  const parsed = parseWallAlarmTime(wallAlarmTime.value)
+  wallAlarm.value.hour = parsed.hour
+  wallAlarm.value.minute = parsed.minute
+  await persistWallAlarm()
+}
+
+async function persistWallAlarm() {
+  await setWallAlarm(wallAlarm.value)
+
+  if (wallAlarm.value.enabled) {
+    await scheduleWallAlarm(wallAlarm.value.hour, wallAlarm.value.minute)
+  } else {
+    await clearWallAlarm()
+  }
+}
+
+function selectBackground(value: string) {
+  settings.value.background = value
+  refreshDisplayedCustomBackground()
+  void saveSettings()
+}
+
+async function handleBackgroundUpload(event: Event) {
+  const input = event.target as HTMLInputElement
+  const files = input.files
+
+  if (!files?.length) {
+    return
+  }
+
+  const added: string[] = []
+
+  for (const file of Array.from(files)) {
+    try {
+      added.push(await compressBackgroundImage(file))
+    } catch {
+      // Skip invalid or unreadable files.
+    }
+  }
+
+  if (added.length === 0) {
+    input.value = ''
+    return
+  }
+
+  settings.value.customBackgrounds.push(...added)
+  settings.value.background = 'custom'
+  refreshDisplayedCustomBackground()
+  await saveSettings()
+  input.value = ''
+}
+
+function removeCustomBackground(index: number) {
+  settings.value.customBackgrounds.splice(index, 1)
+
+  if (settings.value.customBackgrounds.length === 0 && settings.value.background === 'custom') {
+    settings.value.background = 'alpine'
+  }
+
+  refreshDisplayedCustomBackground()
+  void saveSettings()
+}
+
+</script>
+
+<template>
+  <main class="new-tab todo-dark" :style="{ '--tab-background-image': backgroundStyle }">
+    <div class="scrim">
+      <div class="scrim-overlay" aria-hidden="true"></div>
+      <div class="page-content">
+      <nav class="top-nav" aria-label="New tab sections">
+        <button :class="{ active: view === 'clock' }" type="button" @click="view = 'clock'">
+          <Clock3 :size="14" />
+          Clock
+        </button>
+        <button :class="{ active: view === 'todos' }" type="button" @click="view = 'todos'">
+          <ListTodo :size="14" />
+          Todos
+        </button>
+        <button :class="{ active: view === 'settings' }" type="button" @click="view = 'settings'">
+          <Settings :size="14" />
+          Settings
+        </button>
+        <button :class="{ active: view === 'metrics' }" type="button" @click="view = 'metrics'">
+          <BarChart3 :size="14" />
+          Metrics
+        </button>
+      </nav>
+
+      <section v-if="view !== 'settings' && view !== 'metrics'" class="clock-hero" aria-live="polite">
+        <p class="eyebrow">{{ heroEyebrow }}</p>
+        <div class="hero-stack">
+          <CountdownClock
+            v-if="showCountdownInHero"
+            :remaining-ms="mainRemainingMs"
+            :ends-at-ms="mainEndsAtMs"
+            :paused="mainTimerPaused"
+            size="hero"
+            tag="h1"
+          />
+          <h1 v-else>{{ currentTime }}</h1>
+          <div v-if="showCountdownInHero && showPanelTimerControls" class="hero-countdown-actions">
+            <button
+              v-if="canPauseTimer"
+              class="countdown-action backdrop-glass"
+              type="button"
+              aria-label="Pause timer"
+              @click="pauseTimer"
+            >
+              <Pause :size="20" />
+            </button>
+            <button
+              v-else-if="canResumeTimer"
+              class="countdown-action backdrop-glass"
+              type="button"
+              aria-label="Resume timer"
+              @click="resumeTimer"
+            >
+              <Play :size="20" />
+            </button>
+            <button
+              class="countdown-action backdrop-glass"
+              type="button"
+              aria-label="Stop timer"
+              @click="requestReset"
+            >
+              <Square :size="16" fill="currentColor" />
+            </button>
+          </div>
+          <CountdownClock
+            v-if="onBreak"
+            :remaining-ms="breakRemainingMs"
+            :ends-at-ms="breakEndsAtMs"
+            :label="timer.break?.kind ?? 'Break'"
+            size="compact"
+            tag="p"
+          />
+          <p v-if="wallAlarm.enabled" class="timer-alarm-hint">
+            <AlarmClock :size="12" aria-hidden="true" />
+            <span>Alarm {{ wallAlarmDisplay }}</span>
+          </p>
+        </div>
+        <p class="subtle">
+          {{
+            onBreak
+              ? 'On break — use End break to resume focus early.'
+              : timer.active
+                ? 'Stay with one task until the timer ends.'
+                : `${openTodos} open tasks today`
+          }}
+        </p>
+      </section>
+
+      <section v-if="view !== 'settings' && view !== 'metrics'" class="workspace">
+        <article class="timer-panel">
+          <div class="timer-panel-pane">
+            <div v-if="!onBreak" class="focus-duration-buttons" role="group" aria-label="Focus duration">
+              <button
+                v-for="option in timerOptions"
+                :key="option.value"
+                type="button"
+                class="focus-duration-button backdrop-glass"
+                :class="{ 'backdrop-glass--solid': activeFocusMinutes === option.value }"
+                @click="requestFocusStart(option.value)"
+              >
+                {{ option.label }}
+              </button>
+              <button
+                type="button"
+                class="focus-duration-button focus-duration-button--alarm backdrop-glass"
+                :class="{ 'backdrop-glass--solid': wallAlarm.enabled }"
+                aria-label="Set alarm"
+                @click="alarmOpen = true"
+              >
+                <AlarmClock :size="14" />
+              </button>
+            </div>
+
+            <div v-if="onBreak" class="timer-actions">
+              <Button
+                class="focus-start-button"
+                size="small"
+                label="End break"
+                severity="secondary"
+                outlined
+                @click="endBreakEarly"
+              />
+            </div>
+
+            <div v-else class="break-duration-buttons" role="group" aria-label="Break duration">
+              <button
+                type="button"
+                class="focus-duration-button backdrop-glass"
+                @click="requestTimerStart('Short break', 5)"
+              >
+                Short break
+              </button>
+              <button
+                type="button"
+                class="focus-duration-button backdrop-glass"
+                @click="requestTimerStart('Long break', 15)"
+              >
+                Long break
+              </button>
+            </div>
+          </div>
+        </article>
+
+        <TimeTracking ref="timeTrackingRef" />
+
+        <article class="todo-panel">
+          <div class="panel-heading">
+            <div>
+              <span class="kicker">Tasks</span>
+              <h2>{{ view === 'todos' ? 'Today' : 'Quick Add' }}</h2>
+            </div>
+            <span class="status-pill">{{ completedTodos }}/{{ todos.length }} done</span>
+          </div>
+
+          <form class="todo-form" @submit.prevent="addTodo">
+            <div class="todo-input-wrap">
+              <InputText
+                v-model="newTodoTitle"
+                placeholder="Enter a todo"
+                aria-label="New todo"
+                class="todo-input backdrop-glass"
+              />
+              <button class="todo-input-addon" type="submit" aria-label="Add todo">
+                <Plus :size="16" />
+              </button>
+            </div>
+          </form>
+
+          <div class="todo-list" aria-label="Todo list">
+            <TodoCard
+              v-for="todo in todos"
+              :key="todo.id"
+              :todo="todo"
+              @status-change="(event) => handleTaskStatusChange(todo, event)"
+              @subtodo-added="saveTodos"
+              @subtodo-removed="saveTodos"
+              @request-edit="(target) => openEditDialog(todo.id, target)"
+              @remove="removeTodo(todo.id)"
+              @archive="archiveTodo(todo)"
+            />
+          </div>
+        </article>
+      </section>
+
+      <section v-else-if="view === 'settings'" class="settings-layout">
+        <article class="glass settings-panel">
+          <div class="panel-heading">
+            <div>
+              <span class="kicker">Settings</span>
+              <h2>Background</h2>
+            </div>
+            <Button rounded severity="secondary" outlined @click="settingsOpen = true">
+              Preview
+            </Button>
+          </div>
+
+          <div class="background-grid">
+            <button
+              v-for="preset in backgroundPresets"
+              :key="preset.value"
+              class="background-card"
+              :class="{ active: settings.background === preset.value }"
+              :style="{ backgroundImage: preset.css }"
+              type="button"
+              @click="selectBackground(preset.value)"
+            >
+              <span>{{ preset.label }}</span>
+              <Check v-if="settings.background === preset.value" :size="16" />
+            </button>
+            <button
+              v-if="settings.customBackgrounds.length"
+              class="background-card"
+              :class="{ active: settings.background === 'custom' }"
+              :style="{ backgroundImage: `url('${settings.customBackgrounds[0]}')` }"
+              type="button"
+              @click="selectBackground('custom')"
+            >
+              <span>Your photos</span>
+              <Check v-if="settings.background === 'custom'" :size="16" />
+            </button>
+          </div>
+
+          <p v-if="settings.customBackgrounds.length" class="subtle custom-background-hint">
+            A random photo is chosen each time you open a new tab.
+          </p>
+
+          <div v-if="settings.customBackgrounds.length" class="custom-background-grid">
+            <article
+              v-for="(image, index) in settings.customBackgrounds"
+              :key="`${index}-${image.slice(0, 24)}`"
+              class="custom-background-thumb"
+              :style="{ backgroundImage: `url('${image}')` }"
+            >
+              <button
+                class="icon-button custom-background-remove"
+                type="button"
+                aria-label="Remove photo"
+                @click="removeCustomBackground(index)"
+              >
+                <Trash2 :size="14" />
+              </button>
+            </article>
+          </div>
+
+          <label class="upload-card" for="background-upload">
+            <ImagePlus :size="20" />
+            <span>
+              {{
+                settings.customBackgrounds.length
+                  ? 'Add more photos'
+                  : 'Upload your own backgrounds'
+              }}
+            </span>
+            <input
+              id="background-upload"
+              type="file"
+              accept="image/*"
+              multiple
+              @change="handleBackgroundUpload"
+            />
+          </label>
+        </article>
+      </section>
+
+      <section v-else-if="view === 'metrics'" class="metrics-layout">
+        <MetricsCalendar ref="metricsRef" />
+      </section>
+      </div>
+    </div>
+
+    <Dialog
+      v-model:visible="alarmOpen"
+      modal
+      class="alarm-dialog"
+      header="Alarm clock"
+      :style="{ width: 'min(360px, 92vw)' }"
+      :draggable="false"
+    >
+      <section class="alarm-section" aria-label="Daily alarm">
+        <p class="alarm-dialog__time">{{ wallAlarmDisplay }}</p>
+        <label class="alarm-enable" for="wall-alarm-time">
+          <Checkbox v-model="wallAlarm.enabled" binary class="backdrop-glass" @change="persistWallAlarm" />
+          <span>Enable alarm</span>
+        </label>
+        <input
+          id="wall-alarm-time"
+          v-model="wallAlarmTime"
+          class="alarm-time-input backdrop-glass"
+          type="time"
+          :disabled="!wallAlarm.enabled"
+          aria-label="Alarm time"
+          @change="updateWallAlarmTime"
+        />
+        <p v-if="nextWallAlarmLabel" class="alarm-status">{{ nextWallAlarmLabel }}</p>
+        <p v-else class="alarm-status">Set a time and enable the alarm for a daily reminder.</p>
+      </section>
+    </Dialog>
+
+    <Dialog v-model:visible="settingsOpen" modal header="Current background" :style="{ width: 'min(720px, 92vw)' }">
+      <div class="preview-frame" :style="{ backgroundImage: backgroundStyle }">
+        <span>New tab preview</span>
+      </div>
+    </Dialog>
+
+    <MinimalConfirmDialog
+      v-model:visible="restartConfirmOpen"
+      title="Replace current timer?"
+      :message="`Start a ${pendingFocusMinutes} minute focus session instead? It ends at ${pendingFocusEndLabel}.`"
+      confirm-label="Start"
+      @confirm="confirmFocusRestart"
+      @cancel="cancelFocusRestart"
+    />
+
+    <MinimalConfirmDialog
+      v-model:visible="resetConfirmOpen"
+      title="Reset timer?"
+      message="This will clear the current focus session."
+      confirm-label="Reset"
+      @confirm="confirmReset"
+    />
+
+    <TimeTrackingStartDialog
+      v-model:visible="timeTrackingPromptOpen"
+      :session-label="pendingTimerSessionLabel"
+      @skip="handleTimeTrackingPromptSkip"
+      @start="handleTimeTrackingPromptStart"
+    />
+
+    <TaskEditDialog
+      v-model:visible="editDialogOpen"
+      :title="editingTitle"
+      :status="editingStatus"
+      :task-kind="editingKind"
+      @save="handleEditSave"
+    />
+  </main>
+</template>
