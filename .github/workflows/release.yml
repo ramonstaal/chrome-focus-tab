@@ -1,0 +1,61 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Build and publish extension zip
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Verify tag matches manifest version
+        run: |
+          TAG="${GITHUB_REF_NAME#v}"
+          MANIFEST_VERSION=$(node -p "require('./public/manifest.json').version")
+          echo "Tag version:      $TAG"
+          echo "Manifest version: $MANIFEST_VERSION"
+          if [ "$TAG" != "$MANIFEST_VERSION" ]; then
+            echo "::error::Git tag v$TAG does not match public/manifest.json version $MANIFEST_VERSION"
+            exit 1
+          fi
+
+      - name: Build extension
+        run: npm run build
+
+      - name: Package extension
+        run: npm run package:no-build
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: ${{ github.ref_name }}
+          tag_name: ${{ github.ref_name }}
+          generate_release_notes: true
+          files: release/*.zip
+          body: |
+            ## Install
+
+            1. Download the `.zip` asset below and unzip it.
+            2. Open `chrome://extensions/`.
+            3. Enable **Developer mode** (top right).
+            4. Click **Load unpacked** and select the unzipped folder.
+            5. Open a new tab — the focus dashboard should replace it.
+
+            See the [README](https://github.com/${{ github.repository }}#readme) for details.

@@ -23,21 +23,27 @@ The whole app lives behind a single new tab. There is no account, no server, no 
 - [@lucide/vue](https://lucide.dev/) for icons
 - [Manifest V3](https://developer.chrome.com/docs/extensions/mv3/intro/) Chrome extension with a service worker (`public/background.js`) for alarm scheduling and notifications
 
-## Installation (load as an unpacked extension)
+## Install
+
+### Option A — From a GitHub Release (recommended for end users)
+
+1. Go to the [Releases page](https://github.com/ramonstaal/chrome-focus-tab/releases) and download the latest `focus-todo-new-tab-vX.Y.Z.zip` asset.
+2. Unzip the archive somewhere stable (Chrome reads the files from disk every time it loads the extension — don't delete the folder).
+3. Open `chrome://extensions/`.
+4. Enable **Developer mode** (top right).
+5. Click **Load unpacked** and select the unzipped folder.
+6. Open a new tab — you should see the focus dashboard instead of the default Chrome new tab.
+
+The extension takes over `chrome_url_overrides.newtab` (see `public/manifest.json`), so every new tab routes here.
+
+### Option B — Build it yourself
 
 ```bash
 npm install
 npm run build
 ```
 
-Then, in Chrome:
-
-1. Open `chrome://extensions/`
-2. Enable **Developer mode** (top right)
-3. Click **Load unpacked** and select the generated `dist/` folder
-4. Open a new tab — you should see the focus dashboard instead of the default Chrome new tab
-
-The extension takes over `chrome_url_overrides.newtab` (see `public/manifest.json`), so every new tab routes here.
+Then load the generated `dist/` folder via **Load unpacked** as in steps 3–6 above.
 
 ## Development
 
@@ -48,6 +54,38 @@ npm run preview  # preview the built bundle
 ```
 
 In `npm run dev`, the app falls back to `localStorage` because there is no `chrome.*` API. To exercise the alarm / notification / storage paths you need to load the built `dist/` as an unpacked extension.
+
+## Packaging a distributable zip
+
+`npm run package` produces a Chrome-Web-Store-ready (and "Load unpacked"-ready) zip of the extension:
+
+```bash
+npm run package           # type-checks, builds, then zips dist/ into release/
+npm run package:no-build  # same, but skip the build step (use after npm run build)
+```
+
+The output is written to `release/focus-todo-new-tab-v<version>.zip`, where `<version>` is read from `public/manifest.json`. The zip contains the contents of `dist/` at its root (so `manifest.json` sits at the top level), which is the layout Chrome expects.
+
+You can hand this zip to anyone — they only need to unzip it and use **Load unpacked** in `chrome://extensions/`.
+
+## Cutting a release on GitHub
+
+Releases are automated via [GitHub Actions](.github/workflows/release.yml). The short version:
+
+1. Bump the version in both `public/manifest.json` and `package.json` (they must match).
+2. Commit and push to `main`.
+3. Tag the commit with `v<version>` and push the tag:
+
+   ```bash
+   git tag v1.0.0
+   git push origin v1.0.0
+   ```
+
+4. The `Release` workflow verifies the tag matches the manifest version, builds, packages, and creates a GitHub Release with the zip attached and auto-generated release notes.
+
+Every push to `main` and every PR also runs the `CI` workflow, which builds the extension and uploads the zip as a workflow artifact — handy for testing a build before tagging.
+
+See **[PUBLISHING.md](./PUBLISHING.md)** for the full maintainer guide: first-time setup, version-bump conventions, fixing a bad release, and (optionally) shipping to the Chrome Web Store.
 
 ## Project layout
 
@@ -121,4 +159,4 @@ All data is stored locally on the device. The extension does not make any networ
 
 ## License
 
-Personal project; no license declared yet. Add one (MIT is a sensible default) before sharing.
+[MIT](./LICENSE) — feel free to use, fork, and modify. Attribution appreciated but not required.
