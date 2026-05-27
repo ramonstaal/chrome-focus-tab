@@ -77,6 +77,10 @@ type EditTarget =
   | { kind: 'todo'; todoId: string }
   | { kind: 'subtodo'; todoId: string; subtodoId: string }
 
+type DeleteTarget =
+  | { kind: 'todo'; todoId: string; title: string }
+  | { kind: 'subtodo'; todoId: string; subtodoId: string; title: string }
+
 const TODO_KEY = 'focus-new-tab.todos'
 const LEGACY_TIMER_KEY = 'focus-new-tab.timer'
 const DEFAULT_DOCUMENT_TITLE = 'Focus Todo'
@@ -87,12 +91,19 @@ const defaultTodos: Todo[] = [
     title: 'Plan the first deep-work task',
     status: DEFAULT_STATUS,
     createdAt: Date.now(),
+    notes: '',
     subtodos: [
-      { id: crypto.randomUUID(), title: 'Break it into small steps', status: DEFAULT_STATUS },
+      {
+        id: crypto.randomUUID(),
+        title: 'Break it into small steps',
+        status: DEFAULT_STATUS,
+        notes: '',
+      },
       {
         id: crypto.randomUUID(),
         title: 'Start a 30 minute focus session',
         status: DEFAULT_STATUS,
+        notes: '',
       },
     ],
   },
@@ -144,6 +155,36 @@ const pendingTimerStart = ref<{ kind: TimerKind; minutes: number } | null>(null)
 const timeTrackingRef = ref<InstanceType<typeof TimeTracking> | null>(null)
 const metricsRef = ref<InstanceType<typeof MetricsCalendar> | null>(null)
 const editTarget = ref<EditTarget | null>(null)
+const deleteTarget = ref<DeleteTarget | null>(null)
+const deleteConfirmOpen = computed({
+  get: () => deleteTarget.value !== null,
+  set: (open) => {
+    if (!open) {
+      deleteTarget.value = null
+    }
+  },
+})
+
+const deleteConfirmTitle = computed(() => {
+  if (deleteTarget.value?.kind === 'subtodo') {
+    return 'Delete subtodo?'
+  }
+
+  return 'Delete todo?'
+})
+
+const deleteConfirmMessage = computed(() => {
+  const target = deleteTarget.value
+
+  if (!target) {
+    return ''
+  }
+
+  const label = target.title.trim() || 'this item'
+  const kindLabel = target.kind === 'subtodo' ? 'subtodo' : 'todo'
+
+  return `“${label}” will be removed. This ${kindLabel} can't be recovered.`
+})
 const editDialogOpen = computed({
   get: () => editTarget.value !== null,
   set: (open) => {
@@ -187,6 +228,14 @@ const editingStatus = computed<TaskStatus>(() => {
   }
 
   return editingTodo.value?.status ?? DEFAULT_STATUS
+})
+
+const editingNotes = computed(() => {
+  if (editTarget.value?.kind === 'subtodo') {
+    return editingSubtodo.value?.notes ?? ''
+  }
+
+  return editingTodo.value?.notes ?? ''
 })
 
 const editingKind = computed<'todo' | 'subtodo'>(() =>
@@ -689,6 +738,7 @@ function addTodo() {
     status: DEFAULT_STATUS,
     createdAt: Date.now(),
     subtodos: [],
+    notes: '',
   })
   newTodoTitle.value = ''
   saveTodos()
@@ -697,6 +747,50 @@ function addTodo() {
 function removeTodo(todoId: string) {
   todos.value = todos.value.filter((todo) => todo.id !== todoId)
   saveTodos()
+}
+
+function removeSubtodo(todoId: string, subtodoId: string) {
+  const todo = todos.value.find((entry) => entry.id === todoId)
+
+  if (!todo) {
+    return
+  }
+
+  todo.subtodos = todo.subtodos.filter((subtodo) => subtodo.id !== subtodoId)
+  saveTodos()
+}
+
+function requestRemoveTodo(todo: Todo) {
+  deleteTarget.value = { kind: 'todo', todoId: todo.id, title: todo.title }
+}
+
+function requestRemoveSubtodo(todoId: string, subtodo: Subtodo) {
+  deleteTarget.value = {
+    kind: 'subtodo',
+    todoId,
+    subtodoId: subtodo.id,
+    title: subtodo.title,
+  }
+}
+
+function confirmDelete() {
+  const target = deleteTarget.value
+  deleteTarget.value = null
+
+  if (!target) {
+    return
+  }
+
+  if (target.kind === 'todo') {
+    removeTodo(target.todoId)
+    return
+  }
+
+  removeSubtodo(target.todoId, target.subtodoId)
+}
+
+function cancelDelete() {
+  deleteTarget.value = null
 }
 
 function isTodoFullyComplete(todo: Todo): boolean {
@@ -717,8 +811,12 @@ async function archiveTodo(todo: Todo) {
   await addArchivedTodo({
     id: todo.id,
     title: todo.title,
-    subtodos: todo.subtodos.map((subtodo) => ({ title: subtodo.title })),
+    subtodos: todo.subtodos.map((subtodo) => ({
+      title: subtodo.title,
+      notes: subtodo.notes || undefined,
+    })),
     archivedAt,
+    notes: todo.notes || undefined,
   })
 
   void recordCompletedTodoAction({
@@ -747,7 +845,7 @@ function openEditDialog(todoId: string, target: { kind: 'todo' } | { kind: 'subt
   }
 }
 
-function handleEditSave(payload: { title: string; status: TaskStatus }) {
+function handleEditSave(payload: { title: string; status: TaskStatus; notes: string }) {
   const target = editTarget.value
   const todo = editingTodo.value
 
@@ -765,6 +863,7 @@ function handleEditSave(payload: { title: string; status: TaskStatus }) {
     const oldStatus = subtodo.status
     subtodo.title = payload.title
     subtodo.status = payload.status
+    subtodo.notes = payload.notes
     handleTaskStatusChange(todo, {
       kind: 'subtodo',
       subtodoId: subtodo.id,
@@ -777,6 +876,7 @@ function handleEditSave(payload: { title: string; status: TaskStatus }) {
   const oldStatus = todo.status
   todo.title = payload.title
   todo.status = payload.status
+  todo.notes = payload.notes
   handleTaskStatusChange(todo, {
     kind: 'todo',
     oldStatus,
@@ -1201,9 +1301,9 @@ function removeCustomBackground(index: number) {
               :todo="todo"
               @status-change="(event) => handleTaskStatusChange(todo, event)"
               @subtodo-added="saveTodos"
-              @subtodo-removed="saveTodos"
               @request-edit="(target) => openEditDialog(todo.id, target)"
-              @remove="removeTodo(todo.id)"
+              @request-remove="requestRemoveTodo(todo)"
+              @request-remove-subtodo="(subtodo) => requestRemoveSubtodo(todo.id, subtodo)"
               @archive="archiveTodo(todo)"
             />
           </div>
@@ -1347,6 +1447,15 @@ function removeCustomBackground(index: number) {
       @confirm="confirmReset"
     />
 
+    <MinimalConfirmDialog
+      v-model:visible="deleteConfirmOpen"
+      :title="deleteConfirmTitle"
+      :message="deleteConfirmMessage"
+      confirm-label="Delete"
+      @confirm="confirmDelete"
+      @cancel="cancelDelete"
+    />
+
     <TimeTrackingStartDialog
       v-model:visible="timeTrackingPromptOpen"
       :session-label="pendingTimerSessionLabel"
@@ -1358,6 +1467,7 @@ function removeCustomBackground(index: number) {
       v-model:visible="editDialogOpen"
       :title="editingTitle"
       :status="editingStatus"
+      :notes="editingNotes"
       :task-kind="editingKind"
       @save="handleEditSave"
     />

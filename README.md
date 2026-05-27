@@ -21,7 +21,8 @@ The whole app lives behind a single new tab. There is no account, no server, no 
 - [Vite](https://vitejs.dev/) for the dev server and production build
 - [PrimeVue 4](https://primevue.org/) (Aura theme) for dialogs, inputs and select buttons
 - [@lucide/vue](https://lucide.dev/) for icons
-- [Manifest V3](https://developer.chrome.com/docs/extensions/mv3/intro/) Chrome extension with a service worker (`public/background.js`) for alarm scheduling and notifications
+- [Manifest V3](https://developer.chrome.com/docs/extensions/mv3/intro/) Chrome extension with a service worker (`src/background.js`) for alarm scheduling and notifications
+- [@crxjs/vite-plugin](https://github.com/crxjs/chrome-extension-tools) for true HMR / auto-reload during development
 
 ## Install
 
@@ -34,7 +35,7 @@ The whole app lives behind a single new tab. There is no account, no server, no 
 5. Click **Load unpacked** and select the unzipped folder.
 6. Open a new tab — you should see the focus dashboard instead of the default Chrome new tab.
 
-The extension takes over `chrome_url_overrides.newtab` (see `public/manifest.json`), so every new tab routes here.
+The extension takes over `chrome_url_overrides.newtab` (see `manifest.json`), so every new tab routes here.
 
 ### Option B — Build it yourself
 
@@ -48,12 +49,21 @@ Then load the generated `dist/` folder via **Load unpacked** as in steps 3–6 a
 ## Development
 
 ```bash
-npm run dev      # Vite dev server at http://localhost:5173 (no extension features)
-npm run build    # type-check (vue-tsc) and produce a production dist/ bundle
-npm run preview  # preview the built bundle
+npm run dev          # Vite + CRXJS: builds dist/ and hot-reloads the loaded extension
+npm run build:watch  # plain `vite build --watch` — rebuilds dist/ on every save (no HMR)
+npm run build        # one-shot type-check (vue-tsc) and production dist/ bundle
+npm run preview      # preview the built bundle in a normal browser tab
 ```
 
-In `npm run dev`, the app falls back to `localStorage` because there is no `chrome.*` API. To exercise the alarm / notification / storage paths you need to load the built `dist/` as an unpacked extension.
+`npm run dev` is powered by [`@crxjs/vite-plugin`](https://github.com/crxjs/chrome-extension-tools). It writes a development build to `dist/` and connects it to Vite's HMR socket:
+
+1. Run `npm run dev`.
+2. Open `chrome://extensions/`, enable **Developer mode**, click **Load unpacked**, and select the `dist/` folder. You only need to do this once.
+3. Edit any `.vue` / `.ts` / CSS file — popup pages (including the new-tab UI) update via HMR without losing state. Changes to `src/background.js` or `manifest.json` trigger an automatic extension reload via CRXJS.
+
+If you'd rather not have the dev server running, `npm run build:watch` is a lighter-weight alternative: it rebuilds `dist/` on every save, and you click the reload icon on the extension card in `chrome://extensions/` (a tool like *Extensions Reloader* makes that one keystroke).
+
+In `npm run preview`, the app falls back to `localStorage` because there is no `chrome.*` API. To exercise the alarm / notification / storage paths you need to load the built `dist/` as an unpacked extension.
 
 ## Packaging a distributable zip
 
@@ -64,7 +74,7 @@ npm run package           # type-checks, builds, then zips dist/ into release/
 npm run package:no-build  # same, but skip the build step (use after npm run build)
 ```
 
-The output is written to `release/focus-todo-new-tab-v<version>.zip`, where `<version>` is read from `public/manifest.json`. The zip contains the contents of `dist/` at its root (so `manifest.json` sits at the top level), which is the layout Chrome expects.
+The output is written to `release/focus-todo-new-tab-v<version>.zip`, where `<version>` is read from `manifest.json`. The zip contains the contents of `dist/` at its root (so `manifest.json` sits at the top level), which is the layout Chrome expects.
 
 You can hand this zip to anyone — they only need to unzip it and use **Load unpacked** in `chrome://extensions/`.
 
@@ -72,7 +82,7 @@ You can hand this zip to anyone — they only need to unzip it and use **Load un
 
 Releases are automated via [GitHub Actions](.github/workflows/release.yml). The short version:
 
-1. Bump the version in both `public/manifest.json` and `package.json` (they must match).
+1. Bump the version in both `manifest.json` and `package.json` (they must match).
 2. Commit and push to `main`.
 3. Tag the commit with `v<version>` and push the tag:
 
@@ -90,15 +100,16 @@ See **[PUBLISHING.md](./PUBLISHING.md)** for the full maintainer guide: first-ti
 ## Project layout
 
 ```
+manifest.json       Chrome MV3 manifest (root — consumed by @crxjs/vite-plugin)
+
 public/
-  manifest.json     Chrome MV3 manifest
-  background.js     Service worker: alarms, break-to-focus transitions, focus-block log
   favicon.svg
   icons.svg
 
 src/
   App.vue                       Top-level layout, view switching, timer + todo orchestration
   main.ts                       App bootstrap + PrimeVue config
+  background.js                 Service worker: alarms, break-to-focus transitions, focus-block log
   style.css                     Global styles, glass tokens, layout
   todos.ts                      Todo / Subtodo types, status helpers, legacy-data migration
   chromeAlarms.ts               Timer + wall-alarm state and chrome.alarms wrappers
@@ -144,7 +155,7 @@ Legacy todo records (older versions used `done: boolean`) are migrated to the ne
 
 ## Permissions
 
-Declared in `public/manifest.json`:
+Declared in `manifest.json`:
 
 - **`alarms`** — schedule focus / break completion and the daily wall alarm so the timer keeps running with the tab closed.
 - **`notifications`** — fire a notification when a timer or wall alarm finishes.

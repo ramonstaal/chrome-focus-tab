@@ -2,24 +2,30 @@
 import { computed, nextTick, ref, useTemplateRef, watch } from 'vue'
 import Dialog from 'primevue/dialog'
 import InputText from 'primevue/inputtext'
-import { Activity, Check, Circle, CircleCheck, CirclePause, X } from '@lucide/vue'
+import { Activity, Check, Circle, CircleCheck, CirclePause, Eye, Pencil, X } from '@lucide/vue'
 import { STATUS_LABEL, TASK_STATUSES, type TaskStatus } from '../todos'
+import { renderMarkdown } from '../utils/markdown'
 
 const visible = defineModel<boolean>('visible', { required: true })
 
 const props = defineProps<{
   title: string
   status: TaskStatus
+  notes: string
   taskKind: 'todo' | 'subtodo'
 }>()
 
 const emit = defineEmits<{
-  save: [payload: { title: string; status: TaskStatus }]
+  save: [payload: { title: string; status: TaskStatus; notes: string }]
 }>()
 
 const titleDraft = ref(props.title)
 const statusDraft = ref<TaskStatus>(props.status)
+const notesDraft = ref(props.notes)
+const notesMode = ref<'edit' | 'preview'>('edit')
 const inputRef = useTemplateRef<InstanceType<typeof InputText>>('inputRef')
+
+const renderedNotes = computed(() => renderMarkdown(notesDraft.value))
 
 const STATUS_ICON = {
   open: Circle,
@@ -53,7 +59,10 @@ const headerKicker = computed(() => (props.taskKind === 'todo' ? 'Task' : 'Subta
 const previewTitle = computed(() => titleDraft.value.trim() || 'Untitled task')
 
 const isDirty = computed(
-  () => titleDraft.value.trim() !== props.title.trim() || statusDraft.value !== props.status,
+  () =>
+    titleDraft.value.trim() !== props.title.trim() ||
+    statusDraft.value !== props.status ||
+    notesDraft.value !== props.notes,
 )
 
 watch(visible, async (isOpen) => {
@@ -63,6 +72,8 @@ watch(visible, async (isOpen) => {
 
   titleDraft.value = props.title
   statusDraft.value = props.status
+  notesDraft.value = props.notes
+  notesMode.value = 'edit'
   await nextTick()
   const el = (inputRef.value as unknown as { $el?: HTMLElement } | null)?.$el as
     | HTMLElement
@@ -81,11 +92,12 @@ function handleSave() {
     return
   }
 
-  visible.value = false
   emit('save', {
     title: titleDraft.value.trim(),
     status: statusDraft.value,
+    notes: notesDraft.value,
   })
+  visible.value = false
 }
 
 function pickStatus(value: TaskStatus) {
@@ -165,6 +177,52 @@ function pickStatus(value: TaskStatus) {
           </button>
         </div>
         <p class="task-edit-dialog__hint">{{ STATUS_HINT[statusDraft] }}</p>
+      </div>
+
+      <div class="task-edit-dialog__field">
+        <div class="task-edit-dialog__notes-header">
+          <span class="task-edit-dialog__field-label">Notes</span>
+          <div class="task-edit-dialog__notes-tabs" role="tablist" aria-label="Notes mode">
+            <button
+              type="button"
+              role="tab"
+              :aria-selected="notesMode === 'edit'"
+              class="task-edit-dialog__notes-tab"
+              :class="{ 'task-edit-dialog__notes-tab--active': notesMode === 'edit' }"
+              @click="notesMode = 'edit'"
+            >
+              <Pencil :size="11" />
+              Write
+            </button>
+            <button
+              type="button"
+              role="tab"
+              :aria-selected="notesMode === 'preview'"
+              class="task-edit-dialog__notes-tab"
+              :class="{ 'task-edit-dialog__notes-tab--active': notesMode === 'preview' }"
+              @click="notesMode = 'preview'"
+            >
+              <Eye :size="11" />
+              Preview
+            </button>
+          </div>
+        </div>
+        <textarea
+          v-show="notesMode === 'edit'"
+          v-model="notesDraft"
+          class="task-edit-dialog__notes-input"
+          placeholder="Markdown supported — links, **bold**, lists, etc."
+          rows="6"
+          aria-label="Notes (markdown)"
+        ></textarea>
+        <div
+          v-show="notesMode === 'preview'"
+          class="task-edit-dialog__notes-preview markdown-body"
+          role="tabpanel"
+        >
+          <div v-if="renderedNotes" v-html="renderedNotes"></div>
+          <p v-else class="task-edit-dialog__notes-empty">Nothing to preview yet.</p>
+        </div>
       </div>
     </div>
 
@@ -557,6 +615,100 @@ function pickStatus(value: TaskStatus) {
   color: var(--muted);
   line-height: 1.4;
   min-height: 1.2em;
+}
+
+.task-edit-dialog__notes-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.task-edit-dialog__notes-tabs {
+  display: inline-flex;
+  padding: 2px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.task-edit-dialog__notes-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 10px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  cursor: pointer;
+  transition:
+    background 160ms ease,
+    color 160ms ease;
+}
+
+.task-edit-dialog__notes-tab:hover {
+  color: var(--text);
+}
+
+.task-edit-dialog__notes-tab--active {
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.task-edit-dialog__notes-input {
+  width: 100%;
+  min-height: 120px;
+  padding: 12px 14px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  line-height: 1.5;
+  resize: vertical;
+  transition:
+    background 160ms ease,
+    border-color 160ms ease,
+    box-shadow 160ms ease;
+}
+
+.task-edit-dialog__notes-input::placeholder {
+  color: rgba(255, 255, 255, 0.42);
+}
+
+.task-edit-dialog__notes-input:hover {
+  background: rgba(255, 255, 255, 0.06);
+  border-color: rgba(255, 255, 255, 0.2);
+}
+
+.task-edit-dialog__notes-input:focus {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.4);
+  box-shadow: 0 0 0 4px rgba(255, 255, 255, 0.06);
+  outline: none;
+}
+
+.task-edit-dialog__notes-preview {
+  min-height: 120px;
+  padding: 12px 14px;
+  border: 1px dashed rgba(255, 255, 255, 0.14);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.02);
+  color: var(--text);
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.task-edit-dialog__notes-empty {
+  margin: 0;
+  color: var(--muted);
+  font-style: italic;
 }
 
 .task-edit-dialog__actions {

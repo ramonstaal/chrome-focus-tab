@@ -1,9 +1,10 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import InputText from 'primevue/inputtext'
-import { Archive, Pencil, Plus, Trash2 } from '@lucide/vue'
+import { Archive, ChevronDown, FileText, Pencil, Plus, Trash2 } from '@lucide/vue'
 import { DEFAULT_STATUS, isTaskDone, type Subtodo, type TaskStatus, type Todo } from '../todos'
 import TaskStatusBadge from './TaskStatusBadge.vue'
+import { renderMarkdown } from '../utils/markdown'
 
 const props = defineProps<{ todo: Todo }>()
 
@@ -14,13 +15,33 @@ const emit = defineEmits<{
       | { kind: 'subtodo'; subtodoId: string; oldStatus: TaskStatus; newStatus: TaskStatus },
   ]
   'subtodo-added': [subtodo: Subtodo]
-  'subtodo-removed': [subtodoId: string]
   'request-edit': [target: { kind: 'todo' } | { kind: 'subtodo'; subtodoId: string }]
-  remove: []
+  'request-remove-subtodo': [subtodo: Subtodo]
+  'request-remove': []
   archive: []
 }>()
 
 const subtodoDraft = ref('')
+const todoNotesOpen = ref(false)
+const subtodoNotesOpen = ref<Record<string, boolean>>({})
+
+const hasTodoNotes = computed(() => props.todo.notes.trim().length > 0)
+const renderedTodoNotes = computed(() => renderMarkdown(props.todo.notes))
+
+function hasSubtodoNotes(subtodo: Subtodo): boolean {
+  return subtodo.notes.trim().length > 0
+}
+
+function renderedSubtodoNotes(subtodo: Subtodo): string {
+  return renderMarkdown(subtodo.notes)
+}
+
+function toggleSubtodoNotes(subtodoId: string) {
+  subtodoNotesOpen.value = {
+    ...subtodoNotesOpen.value,
+    [subtodoId]: !subtodoNotesOpen.value[subtodoId],
+  }
+}
 
 const isFullyComplete = computed(() => {
   if (!isTaskDone(props.todo.status)) {
@@ -57,11 +78,6 @@ function setSubtodoStatus(subtodo: Subtodo, newStatus: TaskStatus) {
   })
 }
 
-function removeSubtodo(subtodoId: string) {
-  props.todo.subtodos = props.todo.subtodos.filter((subtodo) => subtodo.id !== subtodoId)
-  emit('subtodo-removed', subtodoId)
-}
-
 function addSubtodo() {
   const title = subtodoDraft.value.trim()
 
@@ -73,6 +89,7 @@ function addSubtodo() {
     id: crypto.randomUUID(),
     title,
     status: DEFAULT_STATUS,
+    notes: '',
   }
 
   props.todo.subtodos.push(subtodo)
@@ -102,6 +119,19 @@ function addSubtodo() {
       </button>
       <div class="todo-row-actions">
         <button
+          v-if="hasTodoNotes"
+          class="icon-button todo-notes-toggle"
+          :class="{ 'todo-notes-toggle--open': todoNotesOpen }"
+          type="button"
+          :aria-expanded="todoNotesOpen"
+          aria-label="Toggle notes"
+          title="Toggle notes"
+          @click="todoNotesOpen = !todoNotesOpen"
+        >
+          <FileText :size="13" />
+          <ChevronDown class="todo-notes-toggle__chevron" :size="11" />
+        </button>
+        <button
           class="icon-button"
           type="button"
           aria-label="Edit todo"
@@ -118,55 +148,84 @@ function addSubtodo() {
         >
           <Archive :size="15" />
         </button>
-        <button class="icon-button" type="button" aria-label="Delete todo" @click="emit('remove')">
+        <button
+          class="icon-button"
+          type="button"
+          aria-label="Delete todo"
+          @click="emit('request-remove')"
+        >
           <Trash2 :size="15" />
         </button>
       </div>
     </div>
 
+    <div
+      v-if="hasTodoNotes && todoNotesOpen"
+      class="todo-notes markdown-body"
+      v-html="renderedTodoNotes"
+    ></div>
+
     <div v-if="todo.subtodos.length" class="subtodo-list">
-      <div
-        v-for="subtodo in todo.subtodos"
-        :key="subtodo.id"
-        class="subtodo-row"
-        :class="[
-          `subtodo-row--status-${subtodo.status}`,
-          { 'subtodo-row--done': isTaskDone(subtodo.status) },
-        ]"
-      >
-        <TaskStatusBadge
-          :status="subtodo.status"
-          size="sm"
-          :aria-label="`Subtodo status: change for '${subtodo.title}'`"
-          @change="(status) => setSubtodoStatus(subtodo, status)"
-        />
-        <button
-          type="button"
-          class="subtodo-row__title"
-          :title="`Edit '${subtodo.title}'`"
-          @click="emit('request-edit', { kind: 'subtodo', subtodoId: subtodo.id })"
+      <template v-for="subtodo in todo.subtodos" :key="subtodo.id">
+        <div
+          class="subtodo-row"
+          :class="[
+            `subtodo-row--status-${subtodo.status}`,
+            { 'subtodo-row--done': isTaskDone(subtodo.status) },
+          ]"
         >
-          {{ subtodo.title }}
-        </button>
-        <div class="todo-row-actions">
+          <TaskStatusBadge
+            :status="subtodo.status"
+            size="sm"
+            :aria-label="`Subtodo status: change for '${subtodo.title}'`"
+            @change="(status) => setSubtodoStatus(subtodo, status)"
+          />
           <button
-            class="icon-button"
             type="button"
-            aria-label="Edit subtodo"
+            class="subtodo-row__title"
+            :title="`Edit '${subtodo.title}'`"
             @click="emit('request-edit', { kind: 'subtodo', subtodoId: subtodo.id })"
           >
-            <Pencil :size="12" />
+            {{ subtodo.title }}
           </button>
-          <button
-            class="icon-button"
-            type="button"
-            aria-label="Delete subtodo"
-            @click="removeSubtodo(subtodo.id)"
-          >
-            <Trash2 :size="13" />
-          </button>
+          <div class="todo-row-actions">
+            <button
+              v-if="hasSubtodoNotes(subtodo)"
+              class="icon-button todo-notes-toggle"
+              :class="{ 'todo-notes-toggle--open': subtodoNotesOpen[subtodo.id] }"
+              type="button"
+              :aria-expanded="!!subtodoNotesOpen[subtodo.id]"
+              aria-label="Toggle subtodo notes"
+              title="Toggle notes"
+              @click="toggleSubtodoNotes(subtodo.id)"
+            >
+              <FileText :size="11" />
+              <ChevronDown class="todo-notes-toggle__chevron" :size="10" />
+            </button>
+            <button
+              class="icon-button"
+              type="button"
+              aria-label="Edit subtodo"
+              @click="emit('request-edit', { kind: 'subtodo', subtodoId: subtodo.id })"
+            >
+              <Pencil :size="12" />
+            </button>
+            <button
+              class="icon-button"
+              type="button"
+              aria-label="Delete subtodo"
+              @click="emit('request-remove-subtodo', subtodo)"
+            >
+              <Trash2 :size="13" />
+            </button>
+          </div>
         </div>
-      </div>
+        <div
+          v-if="hasSubtodoNotes(subtodo) && subtodoNotesOpen[subtodo.id]"
+          class="subtodo-notes markdown-body"
+          v-html="renderedSubtodoNotes(subtodo)"
+        ></div>
+      </template>
     </div>
 
     <form class="subtodo-form" @submit.prevent="addSubtodo">
@@ -235,5 +294,41 @@ function addSubtodo() {
 
 .subtodo-row--done {
   opacity: 0.78;
+}
+
+.todo-notes {
+  margin: 6px 0 4px;
+  padding: 10px 12px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.subtodo-notes {
+  margin: 2px 0 6px 30px;
+  padding: 8px 10px;
+  border-left: 2px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.02);
+  border-radius: 0 8px 8px 0;
+  font-size: 12.5px;
+  color: var(--muted);
+}
+
+.subtodo-notes.markdown-body {
+  color: var(--muted);
+}
+
+.todo-notes-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 1px;
+}
+
+.todo-notes-toggle__chevron {
+  transition: transform 160ms ease;
+}
+
+.todo-notes-toggle--open .todo-notes-toggle__chevron {
+  transform: rotate(180deg);
 }
 </style>

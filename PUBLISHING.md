@@ -63,7 +63,7 @@ The `Release` workflow (`.github/workflows/release.yml`) handles building, packa
 
 The tag and the manifest version **must** match, or the release workflow will fail fast. Bump both files:
 
-- `public/manifest.json` → `"version"`
+- `manifest.json` → `"version"`
 - `package.json` → `"version"`
 
 Use [Semantic Versioning](https://semver.org/):
@@ -87,7 +87,7 @@ The script will fail if the manifest version and the built `dist/manifest.json` 
 ### 3. Commit, push, and tag
 
 ```bash
-git add public/manifest.json package.json package-lock.json
+git add manifest.json package.json package-lock.json
 git commit -m "chore: release v<version>"
 git push origin main
 

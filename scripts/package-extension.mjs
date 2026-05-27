@@ -7,9 +7,9 @@
  * Output: release/<extension-slug>-v<version>.zip
  *
  * Behaviour:
- *   - Reads version from public/manifest.json so the zip name always matches
+ *   - Reads version from manifest.json so the zip name always matches
  *     the version Chrome will see.
- *   - Sanity-checks the dist/manifest.json version vs public/manifest.json so
+ *   - Sanity-checks the dist/manifest.json version vs manifest.json so
  *     stale builds do not silently produce a mislabeled zip.
  *   - By default, runs `npm run build` first. Pass --no-build to skip (useful
  *     in CI where build is a separate step).
@@ -26,7 +26,7 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const projectRoot = resolve(__dirname, "..");
 const distDir = join(projectRoot, "dist");
 const releaseDir = join(projectRoot, "release");
-const publicManifest = join(projectRoot, "public", "manifest.json");
+const sourceManifest = join(projectRoot, "manifest.json");
 const distManifest = join(distDir, "manifest.json");
 
 const args = new Set(process.argv.slice(2));
@@ -81,7 +81,7 @@ async function verifyDist(expectedVersion) {
   const built = await readJson(distManifest);
   if (built.version !== expectedVersion) {
     throw new Error(
-      `Version mismatch: public/manifest.json is ${expectedVersion} but dist/manifest.json is ${built.version}. ` +
+      `Version mismatch: manifest.json is ${expectedVersion} but dist/manifest.json is ${built.version}. ` +
         `Re-run the build (omit --no-build) to refresh dist/.`,
     );
   }
@@ -119,9 +119,9 @@ async function zipDist(outFile) {
 }
 
 async function main() {
-  const manifest = await readJson(publicManifest);
+  const manifest = await readJson(sourceManifest);
   if (!manifest.version) {
-    throw new Error("public/manifest.json is missing a version field.");
+    throw new Error("manifest.json is missing a version field.");
   }
   const slug = slugify(manifest.name || "chrome-extension");
   const zipName = `${slug}-v${manifest.version}.zip`;

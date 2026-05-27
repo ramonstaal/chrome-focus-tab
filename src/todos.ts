@@ -4,6 +4,7 @@ export interface Subtodo {
   id: string
   title: string
   status: TaskStatus
+  notes: string
 }
 
 export interface Todo {
@@ -12,6 +13,7 @@ export interface Todo {
   status: TaskStatus
   createdAt: number
   subtodos: Subtodo[]
+  notes: string
 }
 
 export const TASK_STATUSES: TaskStatus[] = ['open', 'busy', 'on-hold', 'done']
@@ -51,6 +53,7 @@ export function normalizeSubtodo(raw: unknown): Subtodo {
     id: typeof value.id === 'string' ? value.id : crypto.randomUUID(),
     title: typeof value.title === 'string' ? value.title : '',
     status,
+    notes: typeof value.notes === 'string' ? value.notes : '',
   }
 }
 
@@ -66,6 +69,7 @@ export function normalizeTodo(raw: unknown): Todo {
     status,
     createdAt: typeof value.createdAt === 'number' ? value.createdAt : Date.now(),
     subtodos,
+    notes: typeof value.notes === 'string' ? value.notes : '',
   }
 }
 

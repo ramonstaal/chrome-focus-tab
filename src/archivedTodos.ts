@@ -2,6 +2,7 @@ import { toDateKey } from './focusMetrics'
 
 export interface ArchivedSubtodo {
   title: string
+  notes?: string
 }
 
 export interface ArchivedTodo {
@@ -10,6 +11,7 @@ export interface ArchivedTodo {
   subtodos: ArchivedSubtodo[]
   archivedAt: number
   dateKey: string
+  notes?: string
 }
 
 export const ARCHIVED_TODOS_KEY = 'archivedTodos'
@@ -49,6 +51,7 @@ export async function addArchivedTodo(input: {
   title: string
   subtodos: ArchivedSubtodo[]
   archivedAt?: number
+  notes?: string
 }): Promise<ArchivedTodo> {
   const archivedAt = input.archivedAt ?? Date.now()
   const record: ArchivedTodo = {
@@ -57,6 +60,7 @@ export async function addArchivedTodo(input: {
     subtodos: input.subtodos,
     archivedAt,
     dateKey: toDateKey(archivedAt),
+    notes: input.notes,
   }
 
   const todos = await getArchivedTodos()
