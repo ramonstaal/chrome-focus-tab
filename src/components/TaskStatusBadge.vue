@@ -163,7 +163,7 @@ onUnmounted(() => {
   padding: 4px 10px 4px 8px;
   border: 1px solid rgba(255, 255, 255, 0.18);
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.04);
+  background: var(--todo-card-bg);
   color: var(--text);
   font: inherit;
   font-size: 11px;
@@ -179,7 +179,7 @@ onUnmounted(() => {
 
 .task-status__chip:hover,
 .task-status--open-menu .task-status__chip {
-  background: rgba(255, 255, 255, 0.1);
+  background: var(--todo-card-bg-hover);
   border-color: rgba(255, 255, 255, 0.32);
 }
 
@@ -203,7 +203,7 @@ onUnmounted(() => {
 }
 
 .task-status__dot--open {
-  background: rgba(255, 255, 255, 0.45);
+  background: var(--todo-card-bg-strong);
 }
 
 .task-status__dot--busy {
@@ -273,11 +273,11 @@ onUnmounted(() => {
 }
 
 .task-status__option:hover {
-  background: rgba(255, 255, 255, 0.08);
+  background: var(--todo-card-bg-hover);
 }
 
 .task-status__option--active {
-  background: rgba(255, 255, 255, 0.06);
+  background: var(--todo-card-bg-hover);
 }
 
 .task-status__option-label {

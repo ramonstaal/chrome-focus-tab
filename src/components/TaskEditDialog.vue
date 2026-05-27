@@ -244,9 +244,9 @@ function pickStatus(value: TaskStatus) {
 
 <style>
 .task-edit-dialog.p-dialog {
-  border: 1px solid rgba(255, 255, 255, 0.14);
+  border: 1px solid var(--line);
   border-radius: 22px;
-  background: linear-gradient(180deg, rgba(18, 24, 42, 0.92) 0%, rgba(8, 13, 26, 0.88) 100%);
+  background: var(--todo-card-bg-strong);
   box-shadow:
     0 32px 80px rgba(0, 0, 0, 0.5),
     0 0 0 1px rgba(255, 255, 255, 0.04);
@@ -301,7 +301,7 @@ function pickStatus(value: TaskStatus) {
   margin-top: -2px;
   border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.04);
+  background: var(--subtodo-list-bg);
   color: var(--muted);
   cursor: pointer;
   transition:
@@ -311,7 +311,7 @@ function pickStatus(value: TaskStatus) {
 }
 
 .task-edit-dialog__close:hover {
-  background: rgba(255, 255, 255, 0.1);
+  background: var(--todo-card-bg-hover);
   border-color: rgba(255, 255, 255, 0.18);
   color: var(--text);
 }
@@ -324,7 +324,7 @@ function pickStatus(value: TaskStatus) {
   padding: 12px 14px;
   border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: 14px;
-  background: rgba(255, 255, 255, 0.03);
+  background: var(--subtodo-list-bg);
   transition:
     background 220ms ease,
     border-color 220ms ease;
@@ -359,7 +359,7 @@ function pickStatus(value: TaskStatus) {
   padding: 3px 9px;
   border-radius: 999px;
   border: 1px solid rgba(255, 255, 255, 0.1);
-  background: rgba(255, 255, 255, 0.04);
+  background: var(--subtodo-list-bg);
   font-size: 10px;
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -448,7 +448,7 @@ function pickStatus(value: TaskStatus) {
   padding: 12px 14px;
   border: 1px solid rgba(255, 255, 255, 0.12);
   border-radius: 12px;
-  background: rgba(255, 255, 255, 0.04);
+  background: var(--subtodo-list-bg);
   color: var(--text);
   font-size: 15px;
   letter-spacing: normal;
@@ -464,12 +464,12 @@ function pickStatus(value: TaskStatus) {
 }
 
 .task-edit-dialog__input.p-inputtext:enabled:hover {
-  background: rgba(255, 255, 255, 0.06);
+  background: var(--todo-card-bg-hover);
   border-color: rgba(255, 255, 255, 0.2);
 }
 
 .task-edit-dialog__input.p-inputtext:enabled:focus {
-  background: rgba(255, 255, 255, 0.08);
+  background: var(--todo-card-bg-hover);
   border-color: rgba(255, 255, 255, 0.4);
   box-shadow: 0 0 0 4px rgba(255, 255, 255, 0.06);
   outline: none;
@@ -489,7 +489,7 @@ function pickStatus(value: TaskStatus) {
   padding: 12px 8px 11px;
   border: 1px solid rgba(255, 255, 255, 0.1);
   border-radius: 14px;
-  background: rgba(255, 255, 255, 0.03);
+  background: var(--subtodo-list-bg);
   color: var(--muted);
   font: inherit;
   font-size: 12px;
@@ -506,7 +506,7 @@ function pickStatus(value: TaskStatus) {
 }
 
 .status-card:hover {
-  background: rgba(255, 255, 255, 0.07);
+  background: var(--todo-card-bg-hover);
   border-color: rgba(255, 255, 255, 0.2);
   color: var(--text);
   transform: translateY(-1px);
@@ -524,7 +524,7 @@ function pickStatus(value: TaskStatus) {
   width: 28px;
   height: 28px;
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.05);
+  background: var(--subtodo-list-bg);
   color: rgba(255, 255, 255, 0.7);
   transition:
     background 180ms ease,
@@ -555,7 +555,7 @@ function pickStatus(value: TaskStatus) {
 
 .status-card--open.status-card--selected {
   color: var(--text);
-  background: rgba(255, 255, 255, 0.1);
+  background: var(--todo-card-bg-hover);
   border-color: rgba(255, 255, 255, 0.32);
 }
 
@@ -629,7 +629,7 @@ function pickStatus(value: TaskStatus) {
   padding: 2px;
   border: 1px solid rgba(255, 255, 255, 0.1);
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.04);
+  background: var(--subtodo-list-bg);
 }
 
 .task-edit-dialog__notes-tab {
@@ -657,7 +657,7 @@ function pickStatus(value: TaskStatus) {
 
 .task-edit-dialog__notes-tab--active {
   color: var(--text);
-  background: rgba(255, 255, 255, 0.1);
+  background: var(--todo-card-bg-hover);
 }
 
 .task-edit-dialog__notes-input {
@@ -666,7 +666,7 @@ function pickStatus(value: TaskStatus) {
   padding: 12px 14px;
   border: 1px solid rgba(255, 255, 255, 0.12);
   border-radius: 12px;
-  background: rgba(255, 255, 255, 0.04);
+  background: var(--subtodo-list-bg);
   color: var(--text);
   font: inherit;
   font-size: 13px;
@@ -683,12 +683,12 @@ function pickStatus(value: TaskStatus) {
 }
 
 .task-edit-dialog__notes-input:hover {
-  background: rgba(255, 255, 255, 0.06);
+  background: var(--todo-card-bg-hover);
   border-color: rgba(255, 255, 255, 0.2);
 }
 
 .task-edit-dialog__notes-input:focus {
-  background: rgba(255, 255, 255, 0.08);
+  background: var(--todo-card-bg-hover);
   border-color: rgba(255, 255, 255, 0.4);
   box-shadow: 0 0 0 4px rgba(255, 255, 255, 0.06);
   outline: none;
@@ -699,7 +699,7 @@ function pickStatus(value: TaskStatus) {
   padding: 12px 14px;
   border: 1px dashed rgba(255, 255, 255, 0.14);
   border-radius: 12px;
-  background: rgba(255, 255, 255, 0.02);
+  background: var(--subtodo-list-bg);
   color: var(--text);
   font-size: 13px;
   line-height: 1.55;
@@ -742,7 +742,7 @@ function pickStatus(value: TaskStatus) {
 }
 
 .task-edit-dialog__button:hover:not(:disabled) {
-  background: rgba(255, 255, 255, 0.08);
+  background: var(--todo-card-bg-hover);
   border-color: rgba(255, 255, 255, 0.24);
 }
 

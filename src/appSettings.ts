@@ -1,9 +1,20 @@
+export type WeatherLocationMode = 'auto' | 'manual'
+export type WeatherUnits = 'celsius' | 'fahrenheit'
+
 export interface AppSettings {
   background: string
   customBackgrounds: string[]
   countdownEnabled: boolean
   timeTrackingEnabled: boolean
   todosEnabled: boolean
+  weatherEnabled: boolean
+  weatherLocationMode: WeatherLocationMode
+  weatherCity: string
+  weatherLatitude: number | null
+  weatherLongitude: number | null
+  weatherLocationLabel: string
+  weatherUnits: WeatherUnits
+  weatherForecastDays: 5 | 7
 }
 
 export const SETTINGS_STORAGE_KEY = 'appSettings'
@@ -15,6 +26,14 @@ const defaultSettings: AppSettings = {
   countdownEnabled: true,
   timeTrackingEnabled: true,
   todosEnabled: true,
+  weatherEnabled: false,
+  weatherLocationMode: 'auto',
+  weatherCity: '',
+  weatherLatitude: null,
+  weatherLongitude: null,
+  weatherLocationLabel: '',
+  weatherUnits: 'celsius',
+  weatherForecastDays: 7,
 }
 
 export function pickRandomCustomBackground(images: string[]): string {
@@ -55,6 +74,33 @@ function normalizeSettings(raw: unknown): AppSettings {
         ? value.timeTrackingEnabled
         : defaultSettings.timeTrackingEnabled,
     todosEnabled: typeof value.todosEnabled === 'boolean' ? value.todosEnabled : defaultSettings.todosEnabled,
+    weatherEnabled:
+      typeof value.weatherEnabled === 'boolean' ? value.weatherEnabled : defaultSettings.weatherEnabled,
+    weatherLocationMode:
+      value.weatherLocationMode === 'auto' || value.weatherLocationMode === 'manual'
+        ? value.weatherLocationMode
+        : defaultSettings.weatherLocationMode,
+    weatherCity: typeof value.weatherCity === 'string' ? value.weatherCity : defaultSettings.weatherCity,
+    weatherLatitude:
+      typeof value.weatherLatitude === 'number' && Number.isFinite(value.weatherLatitude)
+        ? value.weatherLatitude
+        : defaultSettings.weatherLatitude,
+    weatherLongitude:
+      typeof value.weatherLongitude === 'number' && Number.isFinite(value.weatherLongitude)
+        ? value.weatherLongitude
+        : defaultSettings.weatherLongitude,
+    weatherLocationLabel:
+      typeof value.weatherLocationLabel === 'string'
+        ? value.weatherLocationLabel
+        : defaultSettings.weatherLocationLabel,
+    weatherUnits:
+      value.weatherUnits === 'celsius' || value.weatherUnits === 'fahrenheit'
+        ? value.weatherUnits
+        : defaultSettings.weatherUnits,
+    weatherForecastDays:
+      value.weatherForecastDays === 5 || value.weatherForecastDays === 7
+        ? value.weatherForecastDays
+        : defaultSettings.weatherForecastDays,
   }
 }
 

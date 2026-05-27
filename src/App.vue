@@ -9,7 +9,6 @@ import {
   Check,
   Clock3,
   ImagePlus,
-  ListTodo,
   Pause,
   Play,
   Plus,
@@ -25,6 +24,7 @@ import TimeTracking from './components/TimeTracking.vue'
 import TimeTrackingStartDialog from './components/TimeTrackingStartDialog.vue'
 import TaskEditDialog from './components/TaskEditDialog.vue'
 import TodoCard from './components/TodoCard.vue'
+import WeatherForecast from './components/WeatherForecast.vue'
 import {
   DEFAULT_STATUS,
   normalizeTodos,
@@ -55,7 +55,15 @@ import {
   type TimerState,
   type WallAlarm,
 } from './chromeAlarms'
-import { getAppSettings, pickRandomCustomBackground, setAppSettings, type AppSettings } from './appSettings'
+import {
+  getAppSettings,
+  pickRandomCustomBackground,
+  setAppSettings,
+  type AppSettings,
+  type WeatherLocationMode,
+  type WeatherUnits,
+} from './appSettings'
+import { geocodeCity } from './weather'
 import { addArchivedTodo } from './archivedTodos'
 import { recordCompletedSubtodoAction, recordCompletedTodoAction } from './completedActions'
 import { recordCompletedFocusBlock } from './focusMetrics'
@@ -65,7 +73,7 @@ import { playSchoolbell, playTimerBeep } from './utils/sounds'
 import { recordBreakFromBreakState, recordStandaloneBreakSession } from './breakRecords'
 import { isTimeTrackingActive, startTimeTracking } from './timeTracking'
 
-type ViewName = 'clock' | 'todos' | 'settings' | 'metrics'
+type ViewName = 'clock' | 'settings' | 'metrics'
 
 interface BackgroundPreset {
   label: string
@@ -142,6 +150,14 @@ const settings = ref<AppSettings>({
   countdownEnabled: true,
   timeTrackingEnabled: true,
   todosEnabled: true,
+  weatherEnabled: false,
+  weatherLocationMode: 'auto',
+  weatherCity: '',
+  weatherLatitude: null,
+  weatherLongitude: null,
+  weatherLocationLabel: '',
+  weatherUnits: 'celsius',
+  weatherForecastDays: 7,
 })
 const displayedCustomBackground = ref('')
 const timer = ref<TimerState>(emptyTimerState())
@@ -555,6 +571,80 @@ function handleTaskStatusChange(
 
 async function saveSettings() {
   await setAppSettings(settings.value)
+}
+
+function onWeatherLocationResolved(payload: {
+  latitude: number
+  longitude: number
+  label: string
+}) {
+  settings.value.weatherLatitude = payload.latitude
+  settings.value.weatherLongitude = payload.longitude
+  settings.value.weatherLocationLabel = payload.label
+  void saveSettings()
+}
+
+function setWeatherLocationMode(mode: WeatherLocationMode) {
+  if (settings.value.weatherLocationMode === mode) {
+    return
+  }
+
+  settings.value.weatherLocationMode = mode
+
+  if (mode === 'auto') {
+    settings.value.weatherLatitude = null
+    settings.value.weatherLongitude = null
+    settings.value.weatherLocationLabel = ''
+  }
+
+  void saveSettings()
+}
+
+function setWeatherUnits(units: WeatherUnits) {
+  if (settings.value.weatherUnits === units) {
+    return
+  }
+
+  settings.value.weatherUnits = units
+  void saveSettings()
+}
+
+function setWeatherForecastDays(days: 5 | 7) {
+  if (settings.value.weatherForecastDays === days) {
+    return
+  }
+
+  settings.value.weatherForecastDays = days
+  void saveSettings()
+}
+
+async function resolveWeatherCityFromSettings() {
+  if (settings.value.weatherLocationMode !== 'manual') {
+    return
+  }
+
+  const query = settings.value.weatherCity.trim()
+  if (!query) {
+    settings.value.weatherLatitude = null
+    settings.value.weatherLongitude = null
+    settings.value.weatherLocationLabel = ''
+    await saveSettings()
+    return
+  }
+
+  try {
+    const match = await geocodeCity(query)
+    if (!match) {
+      return
+    }
+
+    settings.value.weatherLatitude = match.latitude
+    settings.value.weatherLongitude = match.longitude
+    settings.value.weatherLocationLabel = match.name
+    await saveSettings()
+  } catch {
+    // Weather panel will surface fetch errors on the homepage.
+  }
 }
 
 async function saveTimer() {
@@ -1145,10 +1235,6 @@ function removeCustomBackground(index: number) {
           <Clock3 :size="14" />
           Clock
         </button>
-        <button :class="{ active: view === 'todos' }" type="button" @click="view = 'todos'">
-          <ListTodo :size="14" />
-          Todos
-        </button>
         <button :class="{ active: view === 'settings' }" type="button" @click="view = 'settings'">
           <Settings :size="14" />
           Settings
@@ -1227,6 +1313,18 @@ function removeCustomBackground(index: number) {
         </p>
       </section>
 
+      <WeatherForecast
+        v-if="settings.weatherEnabled && view !== 'settings' && view !== 'metrics'"
+        :location-mode="settings.weatherLocationMode"
+        :city-query="settings.weatherCity"
+        :latitude="settings.weatherLatitude"
+        :longitude="settings.weatherLongitude"
+        :location-label="settings.weatherLocationLabel"
+        :units="settings.weatherUnits"
+        :forecast-days="settings.weatherForecastDays"
+        @location-resolved="onWeatherLocationResolved"
+      />
+
       <section
         v-if="view !== 'settings' && view !== 'metrics' && (settings.countdownEnabled || settings.timeTrackingEnabled || settings.todosEnabled)"
         class="workspace"
@@ -1291,7 +1389,7 @@ function removeCustomBackground(index: number) {
           <div class="panel-heading">
             <div>
               <span class="kicker">Tasks</span>
-              <h2>{{ view === 'todos' ? 'Today' : 'Quick Add' }}</h2>
+              <h2>Quick Add</h2>
             </div>
             <span class="status-pill">{{ completedTodos }}/{{ todos.length }} done</span>
           </div>
@@ -1336,7 +1434,7 @@ function removeCustomBackground(index: number) {
           </div>
 
           <p class="subtle settings-feature-hint">
-            Choose which sections appear on the Clock and Todos views.
+            Choose which sections appear on the Clock view.
           </p>
 
           <div class="feature-toggles" role="group" aria-label="Main page features">
@@ -1352,6 +1450,122 @@ function removeCustomBackground(index: number) {
               <Checkbox v-model="settings.todosEnabled" binary class="backdrop-glass" @change="saveSettings" />
               <span>Todo lists</span>
             </label>
+            <label class="feature-toggle">
+              <Checkbox v-model="settings.weatherEnabled" binary class="backdrop-glass" @change="saveSettings" />
+              <span>Weather forecast</span>
+            </label>
+          </div>
+        </article>
+
+        <article class="glass settings-panel">
+          <div class="panel-heading">
+            <div>
+              <span class="kicker">Settings</span>
+              <h2>Weather</h2>
+            </div>
+          </div>
+
+          <p class="subtle settings-feature-hint">
+            Forecast uses Open-Meteo. Enable the section above, then choose how to find your location.
+          </p>
+
+          <label class="feature-toggle weather-settings-toggle">
+            <Checkbox v-model="settings.weatherEnabled" binary class="backdrop-glass" @change="saveSettings" />
+            <span>Show weather on Clock</span>
+          </label>
+
+          <div class="weather-settings" :class="{ 'weather-settings--disabled': !settings.weatherEnabled }">
+            <fieldset class="weather-settings__group">
+              <legend class="weather-settings__legend">Location</legend>
+              <div class="weather-settings__choices" role="group" aria-label="Weather location source">
+                <button
+                  type="button"
+                  class="weather-settings__choice backdrop-glass"
+                  :class="{ 'backdrop-glass--solid': settings.weatherLocationMode === 'auto' }"
+                  :disabled="!settings.weatherEnabled"
+                  @click="setWeatherLocationMode('auto')"
+                >
+                  Use my location
+                </button>
+                <button
+                  type="button"
+                  class="weather-settings__choice backdrop-glass"
+                  :class="{ 'backdrop-glass--solid': settings.weatherLocationMode === 'manual' }"
+                  :disabled="!settings.weatherEnabled"
+                  @click="setWeatherLocationMode('manual')"
+                >
+                  City name
+                </button>
+              </div>
+            </fieldset>
+
+            <label v-if="settings.weatherLocationMode === 'manual'" class="weather-settings__field">
+              <span>City</span>
+              <InputText
+                v-model="settings.weatherCity"
+                class="weather-settings__input backdrop-glass"
+                placeholder="e.g. Amsterdam"
+                :disabled="!settings.weatherEnabled"
+                @change="resolveWeatherCityFromSettings"
+              />
+            </label>
+            <p
+              v-else-if="settings.weatherEnabled"
+              class="subtle weather-settings__hint"
+            >
+              Chrome will ask for location permission the first time weather loads.
+            </p>
+            <p v-if="settings.weatherLocationLabel" class="subtle weather-settings__resolved">
+              Showing: {{ settings.weatherLocationLabel }}
+            </p>
+
+            <fieldset class="weather-settings__group">
+              <legend class="weather-settings__legend">Units</legend>
+              <div class="weather-settings__choices" role="group" aria-label="Temperature units">
+                <button
+                  type="button"
+                  class="weather-settings__choice backdrop-glass"
+                  :class="{ 'backdrop-glass--solid': settings.weatherUnits === 'celsius' }"
+                  :disabled="!settings.weatherEnabled"
+                  @click="setWeatherUnits('celsius')"
+                >
+                  Celsius
+                </button>
+                <button
+                  type="button"
+                  class="weather-settings__choice backdrop-glass"
+                  :class="{ 'backdrop-glass--solid': settings.weatherUnits === 'fahrenheit' }"
+                  :disabled="!settings.weatherEnabled"
+                  @click="setWeatherUnits('fahrenheit')"
+                >
+                  Fahrenheit
+                </button>
+              </div>
+            </fieldset>
+
+            <fieldset class="weather-settings__group">
+              <legend class="weather-settings__legend">Forecast length</legend>
+              <div class="weather-settings__choices" role="group" aria-label="Forecast days">
+                <button
+                  type="button"
+                  class="weather-settings__choice backdrop-glass"
+                  :class="{ 'backdrop-glass--solid': settings.weatherForecastDays === 5 }"
+                  :disabled="!settings.weatherEnabled"
+                  @click="setWeatherForecastDays(5)"
+                >
+                  5 days
+                </button>
+                <button
+                  type="button"
+                  class="weather-settings__choice backdrop-glass"
+                  :class="{ 'backdrop-glass--solid': settings.weatherForecastDays === 7 }"
+                  :disabled="!settings.weatherEnabled"
+                  @click="setWeatherForecastDays(7)"
+                >
+                  7 days
+                </button>
+              </div>
+            </fieldset>
           </div>
         </article>
 

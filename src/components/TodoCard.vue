@@ -112,6 +112,7 @@ function addSubtodo() {
       <button
         type="button"
         class="todo-row__title"
+        :class="`todo-row__title--status-${todo.status}`"
         :title="`Edit '${todo.title}'`"
         @click="emit('request-edit', { kind: 'todo' })"
       >
@@ -183,6 +184,7 @@ function addSubtodo() {
           <button
             type="button"
             class="subtodo-row__title"
+            :class="`subtodo-row__title--status-${subtodo.status}`"
             :title="`Edit '${subtodo.title}'`"
             @click="emit('request-edit', { kind: 'subtodo', subtodoId: subtodo.id })"
           >
@@ -260,32 +262,47 @@ function addSubtodo() {
 
 .todo-row__title {
   font-weight: 600;
-  color: var(--text);
 }
 
-.subtodo-row__title {
-  color: var(--muted);
+.todo-row__title--status-open,
+.subtodo-row__title--status-open {
+  color: rgba(255, 255, 255, 0.78);
+}
+
+.todo-row__title--status-busy,
+.subtodo-row__title--status-busy {
+  color: #cfe2ff;
+}
+
+.todo-row__title--status-on-hold,
+.subtodo-row__title--status-on-hold {
+  color: #fef3c7;
+}
+
+.todo-row__title--status-done,
+.subtodo-row__title--status-done {
+  color: #bbf7d0;
 }
 
 .todo-row__title:hover,
 .subtodo-row__title:hover,
 .todo-row__title:focus-visible,
 .subtodo-row__title:focus-visible {
-  color: var(--text);
-  text-decoration-color: rgba(255, 255, 255, 0.42);
+  text-decoration-color: currentColor;
   text-underline-offset: 3px;
   text-decoration-line: underline;
   outline: none;
+  opacity: 0.92;
 }
 
-.todo-card--done .todo-row__title {
+.todo-card--done .todo-row__title--status-done {
   text-decoration: line-through;
-  text-decoration-color: rgba(255, 255, 255, 0.4);
+  text-decoration-color: rgba(134, 239, 172, 0.55);
 }
 
-.subtodo-row--done .subtodo-row__title {
+.subtodo-row--done .subtodo-row__title--status-done {
   text-decoration: line-through;
-  text-decoration-color: rgba(255, 255, 255, 0.32);
+  text-decoration-color: rgba(134, 239, 172, 0.45);
 }
 
 .todo-card--done {
@@ -301,14 +318,14 @@ function addSubtodo() {
   padding: 10px 12px;
   border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: 10px;
-  background: rgba(255, 255, 255, 0.03);
+  background: var(--subtodo-list-bg);
 }
 
 .subtodo-notes {
   margin: 2px 0 6px 30px;
   padding: 8px 10px;
   border-left: 2px solid rgba(255, 255, 255, 0.12);
-  background: rgba(255, 255, 255, 0.02);
+  background: var(--subtodo-list-bg);
   border-radius: 0 8px 8px 0;
   font-size: 12.5px;
   color: var(--muted);
