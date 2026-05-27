@@ -1,7 +1,7 @@
 {
   "name": "chrome-todo",
   "private": true,
-  "version": "0.1.0",
+  "version": "1.1.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -9,7 +9,10 @@
     "build:watch": "vite build --watch",
     "preview": "vite preview",
     "package": "node scripts/package-extension.mjs",
-    "package:no-build": "node scripts/package-extension.mjs --no-build"
+    "package:no-build": "node scripts/package-extension.mjs --no-build",
+    "release:patch": "node scripts/bump-version.mjs patch",
+    "release:minor": "node scripts/bump-version.mjs minor",
+    "release:major": "node scripts/bump-version.mjs major"
   },
   "dependencies": {
     "@lucide/vue": "^1.16.0",

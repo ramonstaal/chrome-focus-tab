@@ -61,10 +61,24 @@ The `Release` workflow (`.github/workflows/release.yml`) handles building, packa
 
 ### 1. Bump the version
 
-The tag and the manifest version **must** match, or the release workflow will fail fast. Bump both files:
+The tag and the manifest version **must** match, or the release workflow will fail fast.
+
+**Automated (recommended):**
+
+```bash
+npm run release:patch   # 1.0.0 → 1.0.1
+npm run release:minor   # 1.0.0 → 1.1.0
+npm run release:major   # 1.0.0 → 2.0.0
+```
+
+This updates `manifest.json`, `package.json`, and `package-lock.json` in one step (`manifest.json` is the source of truth).
+
+**Manual:** edit both files:
 
 - `manifest.json` → `"version"`
 - `package.json` → `"version"`
+
+In Cursor, you can ask the agent to cut a release — it should follow the **chrome-extension-release** skill in `.cursor/skills/chrome-extension-release/`.
 
 Use [Semantic Versioning](https://semver.org/):
 
