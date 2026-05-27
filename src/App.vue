@@ -136,7 +136,13 @@ const timerOptions = [
 
 const view = ref<ViewName>('clock')
 const todos = ref<Todo[]>(loadTodos())
-const settings = ref<AppSettings>({ background: 'alpine', customBackgrounds: [] })
+const settings = ref<AppSettings>({
+  background: 'alpine',
+  customBackgrounds: [],
+  countdownEnabled: true,
+  timeTrackingEnabled: true,
+  todosEnabled: true,
+})
 const displayedCustomBackground = ref('')
 const timer = ref<TimerState>(emptyTimerState())
 const timerRevision = ref(0)
@@ -919,7 +925,10 @@ function requestFocusStart(minutes: number) {
 }
 
 async function requestTimerStart(kind: TimerKind, minutes: number) {
-  if (!(await isTimeTrackingActive())) {
+  if (
+    settings.value.timeTrackingEnabled &&
+    !(await isTimeTrackingActive())
+  ) {
     pendingTimerStart.value = { kind, minutes }
     timeTrackingPromptOpen.value = true
     return
@@ -1150,7 +1159,11 @@ function removeCustomBackground(index: number) {
         </button>
       </nav>
 
-      <section v-if="view !== 'settings' && view !== 'metrics'" class="clock-hero" aria-live="polite">
+      <section
+        v-if="settings.countdownEnabled && view !== 'settings' && view !== 'metrics'"
+        class="clock-hero"
+        aria-live="polite"
+      >
         <p class="eyebrow">{{ heroEyebrow }}</p>
         <div class="hero-stack">
           <CountdownClock
@@ -1214,8 +1227,11 @@ function removeCustomBackground(index: number) {
         </p>
       </section>
 
-      <section v-if="view !== 'settings' && view !== 'metrics'" class="workspace">
-        <article class="timer-panel">
+      <section
+        v-if="view !== 'settings' && view !== 'metrics' && (settings.countdownEnabled || settings.timeTrackingEnabled || settings.todosEnabled)"
+        class="workspace"
+      >
+        <article v-if="settings.countdownEnabled" class="timer-panel">
           <div class="timer-panel-pane">
             <div v-if="!onBreak" class="focus-duration-buttons" role="group" aria-label="Focus duration">
               <button
@@ -1269,9 +1285,9 @@ function removeCustomBackground(index: number) {
           </div>
         </article>
 
-        <TimeTracking ref="timeTrackingRef" />
+        <TimeTracking v-if="settings.timeTrackingEnabled" ref="timeTrackingRef" />
 
-        <article class="todo-panel">
+        <article v-if="settings.todosEnabled" class="todo-panel">
           <div class="panel-heading">
             <div>
               <span class="kicker">Tasks</span>
@@ -1311,6 +1327,34 @@ function removeCustomBackground(index: number) {
       </section>
 
       <section v-else-if="view === 'settings'" class="settings-layout">
+        <article class="glass settings-panel">
+          <div class="panel-heading">
+            <div>
+              <span class="kicker">Settings</span>
+              <h2>Main page</h2>
+            </div>
+          </div>
+
+          <p class="subtle settings-feature-hint">
+            Choose which sections appear on the Clock and Todos views.
+          </p>
+
+          <div class="feature-toggles" role="group" aria-label="Main page features">
+            <label class="feature-toggle">
+              <Checkbox v-model="settings.countdownEnabled" binary class="backdrop-glass" @change="saveSettings" />
+              <span>Countdown clock</span>
+            </label>
+            <label class="feature-toggle">
+              <Checkbox v-model="settings.timeTrackingEnabled" binary class="backdrop-glass" @change="saveSettings" />
+              <span>Time tracker</span>
+            </label>
+            <label class="feature-toggle">
+              <Checkbox v-model="settings.todosEnabled" binary class="backdrop-glass" @change="saveSettings" />
+              <span>Todo lists</span>
+            </label>
+          </div>
+        </article>
+
         <article class="glass settings-panel">
           <div class="panel-heading">
             <div>

@@ -1,6 +1,9 @@
 export interface AppSettings {
   background: string
   customBackgrounds: string[]
+  countdownEnabled: boolean
+  timeTrackingEnabled: boolean
+  todosEnabled: boolean
 }
 
 export const SETTINGS_STORAGE_KEY = 'appSettings'
@@ -9,6 +12,9 @@ const SETTINGS_FALLBACK_KEY = 'focus-new-tab.settings'
 const defaultSettings: AppSettings = {
   background: 'alpine',
   customBackgrounds: [],
+  countdownEnabled: true,
+  timeTrackingEnabled: true,
+  todosEnabled: true,
 }
 
 export function pickRandomCustomBackground(images: string[]): string {
@@ -42,6 +48,13 @@ function normalizeSettings(raw: unknown): AppSettings {
   return {
     background: typeof value.background === 'string' ? value.background : defaultSettings.background,
     customBackgrounds,
+    countdownEnabled:
+      typeof value.countdownEnabled === 'boolean' ? value.countdownEnabled : defaultSettings.countdownEnabled,
+    timeTrackingEnabled:
+      typeof value.timeTrackingEnabled === 'boolean'
+        ? value.timeTrackingEnabled
+        : defaultSettings.timeTrackingEnabled,
+    todosEnabled: typeof value.todosEnabled === 'boolean' ? value.todosEnabled : defaultSettings.todosEnabled,
   }
 }
 

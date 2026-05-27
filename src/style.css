@@ -1356,13 +1356,23 @@ input {
   gap: 12px;
 }
 
-.alarm-enable {
+.alarm-enable,
+.feature-toggle {
   display: inline-flex;
   align-items: center;
   gap: 8px;
   color: var(--text);
   font-size: 13px;
   cursor: pointer;
+}
+
+.settings-feature-hint {
+  margin-top: 0;
+}
+
+.feature-toggles {
+  display: grid;
+  gap: 12px;
 }
 
 .alarm-status {
