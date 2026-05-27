@@ -10,7 +10,7 @@ disable-model-invocation: false
 
 # Chrome extension release (GitHub)
 
-Ship **Focus Todo New Tab** to [GitHub Releases](https://github.com/ramonstaal/chrome-focus-tab/releases). Pushing tag `vX.Y.Z` triggers `.github/workflows/release.yml`, which builds and attaches `focus-todo-new-tab-vX.Y.Z.zip`.
+Ship **Focus Todo New Tab** to [GitHub Releases](https://github.com/ramonstaal/chrome-focus-tab/releases). Pushing tag `vX.Y.Z` triggers `.github/workflows/release.yml`, which builds and attaches `focus-todo-new-tab-vX.Y.Z.zip` — the **same** MV3 zip is used for Chrome (Load unpacked) and Firefox (temporary add-on or AMO upload); see **firefox-extension-release** for Firefox-specific install and AMO notes.
 
 **Source of truth for version:** `manifest.json` → `"version"`. It must equal `package.json` and the git tag (without `v`).
 
@@ -105,9 +105,9 @@ Success → new release with zip + auto-generated notes.
 
 ### 7. Tell the user how to install
 
-1. Open Releases → download `focus-todo-new-tab-vX.Y.Z.zip`
-2. Unzip → `chrome://extensions/` → **Load unpacked** → select folder
-3. New tab should show the focus dashboard
+**Chrome:** Releases → download `focus-todo-new-tab-vX.Y.Z.zip` → unzip → `chrome://extensions/` → **Load unpacked** → select folder → new tab shows the dashboard.
+
+**Firefox:** Same zip → `about:debugging#/runtime/this-firefox` → **Load Temporary Add-on…** → pick `manifest.json` in the unzipped folder (see **firefox-extension-release** and [PUBLISHING.md](../../../PUBLISHING.md)).
 
 ## Do not
 

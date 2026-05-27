@@ -3,6 +3,7 @@
  * Build the project and package the dist/ folder into a zip suitable for:
  *   - "Load unpacked" in chrome://extensions (after unzipping)
  *   - Uploading to the Chrome Web Store as a new extension package
+ *   - Firefox: temporary add-on (about:debugging) or AMO upload — same zip (MV3 + gecko in manifest)
  *
  * Output: release/<extension-slug>-v<version>.zip
  *

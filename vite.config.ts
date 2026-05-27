@@ -1,12 +1,13 @@
 import { defineConfig } from 'vite'
 import vue from '@vitejs/plugin-vue'
-import { crx } from '@crxjs/vite-plugin'
+import { crx, type ManifestV3Export } from '@crxjs/vite-plugin'
 import manifest from './manifest.json' with { type: 'json' }
 
 // https://vite.dev/config/
 export default defineConfig({
   base: './',
-  plugins: [vue(), crx({ manifest })],
+  // JSON import widens `["none"]` to string[]; gecko data_collection_permissions needs a literal tuple.
+  plugins: [vue(), crx({ manifest: manifest as ManifestV3Export })],
   server: {
     // Bind explicitly to IPv4 — Vite's default `localhost` resolves to `::1`
     // on macOS, which Chrome's extension fetch sometimes can't reach.

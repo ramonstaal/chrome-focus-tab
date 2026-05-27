@@ -1,6 +1,6 @@
 # Focus Todo New Tab
 
-A minimal, translucent Chrome extension that replaces the new tab page with a focus timer, a todo board, and lightweight time tracking — so every time you open a tab you land back in your work, not on a search bar.
+A minimal, translucent **Chrome or Firefox** extension (Manifest V3) that replaces the new tab page with a focus timer, a todo board, and lightweight time tracking — so every time you open a tab you land back in your work, not on a search bar.
 
 The whole app lives behind a single new tab. There is no account, no server, no sync; everything is stored in `chrome.storage.local` with a `localStorage` fallback for the dev preview.
 
@@ -28,12 +28,22 @@ The whole app lives behind a single new tab. There is no account, no server, no 
 
 ### Option A — From a GitHub Release (recommended for end users)
 
-1. Go to the [Releases page](https://github.com/ramonstaal/chrome-focus-tab/releases) and download the latest `focus-todo-new-tab-vX.Y.Z.zip` asset.
-2. Unzip the archive somewhere stable (Chrome reads the files from disk every time it loads the extension — don't delete the folder).
-3. Open `chrome://extensions/`.
-4. Enable **Developer mode** (top right).
-5. Click **Load unpacked** and select the unzipped folder.
-6. Open a new tab — you should see the focus dashboard instead of the default Chrome new tab.
+Download the latest `focus-todo-new-tab-vX.Y.Z.zip` from the [Releases page](https://github.com/ramonstaal/chrome-focus-tab/releases), unzip it to a stable folder, then:
+
+**Chrome**
+
+1. Open `chrome://extensions/`.
+2. Enable **Developer mode** (top right).
+3. Click **Load unpacked** and select the unzipped folder.
+4. Open a new tab — you should see the focus dashboard instead of the default new tab.
+
+**Firefox** (requires Firefox 140+ per `strict_min_version` in `manifest.json`)
+
+1. Open `about:debugging#/runtime/this-firefox`.
+2. Click **Load Temporary Add-on…** and select `manifest.json` inside the unzipped folder.
+3. Open a new tab — you should see the focus dashboard.
+
+Firefox’s temporary load is reset when you quit the browser; use [Firefox Add-ons](https://addons.mozilla.org/) (or a signed `.xpi`) for a persistent install. See [PUBLISHING.md](./PUBLISHING.md).
 
 The extension takes over `chrome_url_overrides.newtab` (see `manifest.json`), so every new tab routes here.
 
@@ -76,7 +86,7 @@ npm run package:no-build  # same, but skip the build step (use after npm run bui
 
 The output is written to `release/focus-todo-new-tab-v<version>.zip`, where `<version>` is read from `manifest.json`. The zip contains the contents of `dist/` at its root (so `manifest.json` sits at the top level), which is the layout Chrome expects.
 
-You can hand this zip to anyone — they only need to unzip it and use **Load unpacked** in `chrome://extensions/`.
+You can hand this zip to anyone — Chrome users **Load unpacked** in `chrome://extensions/`; Firefox testers use **Load Temporary Add-on…** on `about:debugging` (see [PUBLISHING.md](./PUBLISHING.md)).
 
 ## Cutting a release on GitHub
 
@@ -95,12 +105,12 @@ Releases are automated via [GitHub Actions](.github/workflows/release.yml). The 
 
 Every push to `main` and every PR also runs the `CI` workflow, which builds the extension and uploads the zip as a workflow artifact — handy for testing a build before tagging.
 
-See **[PUBLISHING.md](./PUBLISHING.md)** for the full maintainer guide: first-time setup, version-bump conventions, fixing a bad release, and (optionally) shipping to the Chrome Web Store.
+See **[PUBLISHING.md](./PUBLISHING.md)** for the full maintainer guide: first-time setup, version-bump conventions, fixing a bad release, and optional store publishing (**Chrome Web Store** and **Firefox AMO**).
 
 ## Project layout
 
 ```
-manifest.json       Chrome MV3 manifest (root — consumed by @crxjs/vite-plugin)
+manifest.json       MV3 manifest for Chrome + Firefox gecko block (root — consumed by @crxjs/vite-plugin)
 
 public/
   favicon.svg

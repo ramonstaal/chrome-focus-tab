@@ -78,7 +78,7 @@ This updates `manifest.json`, `package.json`, and `package-lock.json` in one ste
 - `manifest.json` → `"version"`
 - `package.json` → `"version"`
 
-In Cursor, you can ask the agent to cut a release — it should follow the **chrome-extension-release** skill in `.cursor/skills/chrome-extension-release/`.
+In Cursor, you can ask the agent to cut a release — it should follow the **chrome-extension-release** skill in `.cursor/skills/chrome-extension-release/` (and **firefox-extension-release** in `.cursor/skills/firefox-extension-release/` for Firefox install and AMO notes). The same tag and zip ship both browsers.
 
 Use [Semantic Versioning](https://semver.org/):
 
@@ -125,10 +125,42 @@ When the workflow finishes you'll have:
 
 ### 5. Smoke-test the published zip
 
+**Chrome**
+
 1. Download the zip from the release page.
 2. Unzip it.
 3. In `chrome://extensions/`, click **Load unpacked** and select the unzipped folder.
 4. Open a new tab and verify the focus dashboard loads.
+
+**Firefox**
+
+1. Download the **same** zip and unzip it.
+2. Open `about:debugging#/runtime/this-firefox`.
+3. Click **Load Temporary Add-on…** and select `manifest.json` inside the unzipped folder.
+4. Open a new tab and verify the focus dashboard loads.
+
+Temporary add-ons last until you quit Firefox; they are meant for QA and developer installs.
+
+---
+
+## Firefox distribution
+
+The release workflow produces one MV3 zip. `manifest.json` includes `browser_specific_settings.gecko` (add-on ID, minimum Firefox version, and `data_collection_permissions` declaring no off-device data collection). Chrome ignores the `gecko` block; Firefox requires it for AMO and for a stable extension ID.
+
+### Sideload for testing (temporary)
+
+Use the smoke-test steps above. No signing step is required.
+
+### Publishing to Firefox Add-ons (AMO)
+
+1. Create or use a [Firefox Add-on developer account](https://addons.mozilla.org/developers/).
+2. Submit a new add-on and upload the same `focus-todo-new-tab-v<version>.zip` from GitHub Releases (or from `npm run package` locally).
+3. Complete the listing (summary, screenshots, privacy policy if required by policy). This extension stores data only in extension storage and declared APIs; align the privacy questionnaire with that.
+4. The add-on ID in the manifest (`browser_specific_settings.gecko.id`) must stay the same for all future updates of that listing. If you fork the project, generate a new ID before your first AMO submission.
+
+### Optional: signed `.xpi` with `web-ext`
+
+For self-hosted updates or internal distribution outside AMO, Mozilla’s signing service can produce a signed `.xpi`. Typical flow: install [`web-ext`](https://extensionworkshop.com/documentation/develop/getting-started-with-web-ext/), set API credentials from the AMO developer hub, then run `web-ext sign --source-dir dist` (after `npm run build`) or point at your unzipped release folder. See Extension Workshop’s **web-ext** docs for current flags and JWT keys.
 
 ---
 
