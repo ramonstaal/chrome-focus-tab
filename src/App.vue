@@ -410,6 +410,52 @@ const completedTodos = computed(
 )
 const openTodos = computed(() => todos.value.length - completedTodos.value)
 
+const TODO_LIST_COLUMN_TARGET_PX = 500
+const TODO_LIST_GAP_PX = 10
+
+const todoListRef = ref<HTMLElement | null>(null)
+const todoColumnsPerRow = ref(1)
+
+function updateTodoColumnsPerRow(width: number) {
+  const columns = Math.floor(
+    (width + TODO_LIST_GAP_PX) / (TODO_LIST_COLUMN_TARGET_PX + TODO_LIST_GAP_PX),
+  )
+  todoColumnsPerRow.value = Math.max(1, columns)
+}
+
+const todoRows = computed(() => {
+  const perRow = todoColumnsPerRow.value
+  const items = todos.value
+  if (!items.length) {
+    return [] as Todo[][]
+  }
+
+  const rows: Todo[][] = []
+  for (let index = 0; index < items.length; index += perRow) {
+    rows.push(items.slice(index, index + perRow))
+  }
+  return rows
+})
+
+watchEffect((onCleanup) => {
+  const listElement = todoListRef.value
+  if (!listElement) {
+    return
+  }
+
+  const observer = new ResizeObserver(([entry]) => {
+    const width =
+      entry.contentBoxSize?.[0]?.inlineSize ??
+      entry.borderBoxSize?.[0]?.inlineSize ??
+      entry.contentRect.width
+    updateTodoColumnsPerRow(width)
+  })
+  observer.observe(listElement)
+  updateTodoColumnsPerRow(listElement.getBoundingClientRect().width)
+
+  onCleanup(() => observer.disconnect())
+})
+
 const wallAlarmDisplay = computed(() => formatWallAlarmTime(wallAlarm.value.hour, wallAlarm.value.minute))
 
 const documentTitle = computed(() => {
@@ -1386,40 +1432,53 @@ function removeCustomBackground(index: number) {
         <TimeTracking v-if="settings.timeTrackingEnabled" ref="timeTrackingRef" />
 
         <article v-if="settings.todosEnabled" class="todo-panel">
-          <div class="panel-heading">
-            <div>
-              <span class="kicker">Tasks</span>
-              <h2>Quick Add</h2>
+          <div class="todo-panel__intro">
+            <div class="panel-heading">
+              <div>
+                <span class="kicker">Tasks</span>
+                <h2>Quick Add</h2>
+              </div>
+              <span class="status-pill">{{ completedTodos }}/{{ todos.length }} done</span>
             </div>
-            <span class="status-pill">{{ completedTodos }}/{{ todos.length }} done</span>
+
+            <form class="todo-form" @submit.prevent="addTodo">
+              <div class="todo-input-wrap">
+                <InputText
+                  v-model="newTodoTitle"
+                  placeholder="Enter a todo"
+                  aria-label="New todo"
+                  class="todo-input backdrop-glass"
+                />
+                <button class="todo-input-addon" type="submit" aria-label="Add todo">
+                  <Plus :size="16" />
+                </button>
+              </div>
+            </form>
           </div>
 
-          <form class="todo-form" @submit.prevent="addTodo">
-            <div class="todo-input-wrap">
-              <InputText
-                v-model="newTodoTitle"
-                placeholder="Enter a todo"
-                aria-label="New todo"
-                class="todo-input backdrop-glass"
-              />
-              <button class="todo-input-addon" type="submit" aria-label="Add todo">
-                <Plus :size="16" />
-              </button>
+          <div
+            ref="todoListRef"
+            class="todo-list"
+            :style="{ '--todo-columns-per-row': todoColumnsPerRow }"
+            aria-label="Todo list"
+          >
+            <div
+              v-for="(row, rowIndex) in todoRows"
+              :key="`todo-row-${rowIndex}`"
+              class="todo-list__row"
+            >
+              <div v-for="todo in row" :key="todo.id" class="todo-list__column">
+                <TodoCard
+                  :todo="todo"
+                  @status-change="(event) => handleTaskStatusChange(todo, event)"
+                  @subtodo-added="saveTodos"
+                  @request-edit="(target) => openEditDialog(todo.id, target)"
+                  @request-remove="requestRemoveTodo(todo)"
+                  @request-remove-subtodo="(subtodo) => requestRemoveSubtodo(todo.id, subtodo)"
+                  @archive="archiveTodo(todo)"
+                />
+              </div>
             </div>
-          </form>
-
-          <div class="todo-list" aria-label="Todo list">
-            <TodoCard
-              v-for="todo in todos"
-              :key="todo.id"
-              :todo="todo"
-              @status-change="(event) => handleTaskStatusChange(todo, event)"
-              @subtodo-added="saveTodos"
-              @request-edit="(target) => openEditDialog(todo.id, target)"
-              @request-remove="requestRemoveTodo(todo)"
-              @request-remove-subtodo="(subtodo) => requestRemoveSubtodo(todo.id, subtodo)"
-              @archive="archiveTodo(todo)"
-            />
           </div>
         </article>
       </section>

@@ -162,8 +162,8 @@ input {
 
 .workspace,
 .settings-layout {
-  width: min(100%, 1120px);
-  margin: 0 auto;
+  width: 100%;
+  margin: 0;
   display: grid;
   grid-template-columns: 1fr;
   gap: 18px;
@@ -532,6 +532,7 @@ input {
 }
 
 .todo-panel {
+  width: 100%;
   padding: 0;
   border: 0;
   background: transparent;
@@ -990,9 +991,13 @@ input {
   gap: 8px;
 }
 
-.todo-form,
-.subtodo-form {
-  margin-bottom: 14px;
+.todo-panel__intro {
+  width: min(100%, 680px);
+  margin: 0 auto 14px;
+}
+
+.todo-form {
+  margin: 0;
 }
 
 .todo-input-wrap {
@@ -1027,13 +1032,25 @@ input {
 }
 
 .todo-list {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  --todo-list-gap: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: var(--todo-list-gap);
+}
+
+.todo-list__row {
+  display: flex;
+  gap: var(--todo-list-gap);
   align-items: start;
-  gap: 10px;
-  max-height: 46vh;
-  overflow: auto;
-  padding-right: 2px;
+}
+
+.todo-list__column {
+  flex: 0 1
+    calc(
+      (100% - (var(--todo-columns-per-row, 1) - 1) * var(--todo-list-gap)) /
+        var(--todo-columns-per-row, 1)
+    );
+  min-width: 0;
 }
 
 .todo-card {
