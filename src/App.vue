@@ -87,6 +87,12 @@ import {
   saveCollapsedTodoIds,
 } from './collapsedTodos'
 import {
+  applyLocalBackup,
+  downloadLocalBackup,
+  parseLocalBackupJson,
+  type LocalBackup,
+} from './localBackup'
+import {
   getSyncApiUrl,
   initSync,
   registerSyncApplyHandler,
@@ -185,6 +191,10 @@ const metricsRef = ref<InstanceType<typeof MetricsCalendar> | null>(null)
 const editTarget = ref<EditTarget | null>(null)
 const deleteTarget = ref<DeleteTarget | null>(null)
 const deleteConfirmOpen = ref(false)
+const backupRestoreConfirmOpen = ref(false)
+const backupError = ref('')
+const backupInputRef = ref<HTMLInputElement | null>(null)
+let pendingBackup: LocalBackup | null = null
 
 const deleteConfirmTitle = computed(() => {
   if (deleteTarget.value?.kind === 'subtodo') {
@@ -492,17 +502,7 @@ onMounted(() => {
   tick()
   clockInterval = window.setInterval(tick, 1000)
 
-  registerSyncApplyHandler(async () => {
-    settings.value = await getAppSettings()
-    categories.value = await getCategories()
-    todos.value = await getTodos()
-    refreshActiveCategory()
-    refreshCollapsedTodoIds()
-    refreshDisplayedCustomBackground()
-    await hydrateTimer()
-    await hydrateWallAlarm()
-    await metricsRef.value?.reload?.()
-  })
+  registerSyncApplyHandler(reloadFromStorage)
 
   if (typeof chrome !== 'undefined' && chrome.storage?.onChanged) {
     chrome.storage.onChanged.addListener(handleStorageChange)
@@ -534,7 +534,7 @@ function refreshDisplayedCustomBackground() {
   displayedCustomBackground.value = ''
 }
 
-async function initializeApp() {
+async function reloadFromStorage() {
   settings.value = await getAppSettings()
   categories.value = await getCategories()
   todos.value = await getTodos()
@@ -543,6 +543,12 @@ async function initializeApp() {
   refreshDisplayedCustomBackground()
   await hydrateTimer()
   await hydrateWallAlarm()
+  await timeTrackingRef.value?.refreshState()
+  await metricsRef.value?.reload?.()
+}
+
+async function initializeApp() {
+  await reloadFromStorage()
   tick()
   await initSync()
 }
@@ -694,6 +700,61 @@ async function handleSyncEnabledChange() {
 async function handleSyncNow() {
   await syncNow()
   settings.value = await getAppSettings()
+}
+
+async function handleDownloadBackup() {
+  backupError.value = ''
+
+  try {
+    await downloadLocalBackup()
+  } catch (error) {
+    backupError.value = error instanceof Error ? error.message : 'Download failed.'
+  }
+}
+
+function handleRestoreBackupClick() {
+  backupError.value = ''
+  backupInputRef.value?.click()
+}
+
+async function handleBackupFileSelected(event: Event) {
+  const input = event.target as HTMLInputElement
+  const file = input.files?.[0]
+  input.value = ''
+
+  if (!file) {
+    return
+  }
+
+  try {
+    const text = await file.text()
+    pendingBackup = parseLocalBackupJson(text)
+    backupRestoreConfirmOpen.value = true
+  } catch (error) {
+    pendingBackup = null
+    backupError.value = error instanceof Error ? error.message : 'Could not read backup file.'
+  }
+}
+
+async function confirmBackupRestore() {
+  if (!pendingBackup) {
+    return
+  }
+
+  backupError.value = ''
+
+  try {
+    await applyLocalBackup(pendingBackup)
+    await reloadFromStorage()
+  } catch (error) {
+    backupError.value = error instanceof Error ? error.message : 'Restore failed.'
+  } finally {
+    pendingBackup = null
+  }
+}
+
+function cancelBackupRestore() {
+  pendingBackup = null
 }
 
 function handleTaskStatusChange(
@@ -1808,6 +1869,39 @@ function removeCustomBackground(index: number) {
           <div class="panel-heading">
             <div>
               <span class="kicker">Settings</span>
+              <h2>Backup</h2>
+            </div>
+          </div>
+
+          <p class="subtle settings-feature-hint">
+            Download a JSON snapshot of todos, categories, metrics, settings, and timer state stored
+            in this browser. Restore replaces all local data with the file contents.
+          </p>
+
+          <div class="sync-settings">
+            <Button rounded severity="secondary" outlined @click="handleDownloadBackup">
+              Download backup
+            </Button>
+            <Button rounded severity="secondary" outlined @click="handleRestoreBackupClick">
+              Restore from file
+            </Button>
+            <input
+              ref="backupInputRef"
+              type="file"
+              accept="application/json,.json"
+              hidden
+              @change="handleBackupFileSelected"
+            />
+            <p v-if="backupError" class="sync-settings__error">
+              {{ backupError }}
+            </p>
+          </div>
+        </article>
+
+        <article class="glass settings-panel">
+          <div class="panel-heading">
+            <div>
+              <span class="kicker">Settings</span>
               <h2>Background</h2>
             </div>
             <Button rounded severity="secondary" outlined @click="settingsOpen = true">
@@ -1947,6 +2041,15 @@ function removeCustomBackground(index: number) {
       confirm-label="Delete"
       @confirm="confirmDelete"
       @cancel="cancelDelete"
+    />
+
+    <MinimalConfirmDialog
+      v-model:visible="backupRestoreConfirmOpen"
+      title="Restore backup?"
+      message="This replaces all todos, settings, and history in this browser with the backup file. Your current data will be overwritten."
+      confirm-label="Restore"
+      @confirm="confirmBackupRestore"
+      @cancel="cancelBackupRestore"
     />
 
     <TimeTrackingStartDialog

@@ -59,7 +59,7 @@ function hasChromeStorage(): boolean {
   return typeof chrome !== 'undefined' && Boolean(chrome.storage?.local)
 }
 
-function normalizeSettings(raw: unknown): AppSettings {
+export function normalizeAppSettings(raw: unknown): AppSettings {
   if (!raw || typeof raw !== 'object') {
     return { ...defaultSettings }
   }
@@ -130,7 +130,7 @@ function loadFallbackSettings(): AppSettings {
   }
 
   try {
-    return normalizeSettings(JSON.parse(raw))
+    return normalizeAppSettings(JSON.parse(raw))
   } catch {
     return { ...defaultSettings }
   }
@@ -143,7 +143,7 @@ export async function getAppSettings(): Promise<AppSettings> {
       const stored = data[SETTINGS_STORAGE_KEY]
 
       if (stored) {
-        return normalizeSettings(stored)
+        return normalizeAppSettings(stored)
       }
     } catch {
       // Fall back to localStorage below.
@@ -159,7 +159,7 @@ export async function setAppSettings(
   settings: AppSettings,
   options: { skipSync?: boolean } = {},
 ): Promise<void> {
-  const normalized = normalizeSettings(settings)
+  const normalized = normalizeAppSettings(settings)
 
   if (hasChromeStorage()) {
     try {

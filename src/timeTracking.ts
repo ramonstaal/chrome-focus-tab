@@ -147,6 +147,10 @@ export async function replaceTimeEntries(
   await saveEntries(entries, options)
 }
 
+export async function replaceActiveTimeTracking(session: ActiveTimeTracking | null): Promise<void> {
+  await saveActiveSession(session)
+}
+
 export async function getActiveTimeTracking(): Promise<ActiveTimeTracking | null> {
   if (hasChromeStorage()) {
     try {
