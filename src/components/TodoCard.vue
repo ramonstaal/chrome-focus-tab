@@ -2,7 +2,14 @@
 import { computed, ref } from 'vue'
 import InputText from 'primevue/inputtext'
 import { Archive, ChevronDown, FileText, Pencil, Plus, Trash2 } from '@lucide/vue'
-import { DEFAULT_STATUS, isTaskDone, type Subtodo, type TaskStatus, type Todo } from '../todos'
+import {
+  DEFAULT_STATUS,
+  isTaskDone,
+  sortByTaskStatus,
+  type Subtodo,
+  type TaskStatus,
+  type Todo,
+} from '../todos'
 import TaskStatusBadge from './TaskStatusBadge.vue'
 import { renderMarkdown } from '../utils/markdown'
 
@@ -64,6 +71,8 @@ const collapsedSummary = computed(() => {
 
   return count === 1 ? '1 subtodo' : `${count} subtodos`
 })
+
+const sortedSubtodos = computed(() => sortByTaskStatus(props.todo.subtodos))
 
 function setTodoStatus(newStatus: TaskStatus) {
   const oldStatus = props.todo.status
@@ -230,7 +239,7 @@ function handleSubtodoPaste(event: ClipboardEvent) {
     ></div>
 
     <div v-if="!collapsed && todo.subtodos.length" class="subtodo-list">
-      <template v-for="subtodo in todo.subtodos" :key="subtodo.id">
+      <template v-for="subtodo in sortedSubtodos" :key="subtodo.id">
         <div
           class="subtodo-row"
           :class="[

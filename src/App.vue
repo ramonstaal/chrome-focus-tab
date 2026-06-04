@@ -11,7 +11,6 @@ import {
   ImagePlus,
   Pause,
   Play,
-  Plus,
   BarChart3,
   Square,
   Settings,
@@ -23,7 +22,9 @@ import MetricsCalendar from './components/MetricsCalendar.vue'
 import TimeTracking from './components/TimeTracking.vue'
 import TimeTrackingStartDialog from './components/TimeTrackingStartDialog.vue'
 import TaskEditDialog from './components/TaskEditDialog.vue'
-import TodoCard from './components/TodoCard.vue'
+import TodoBoard from './components/TodoBoard.vue'
+import TodoCategoryTabs from './components/TodoCategoryTabs.vue'
+import CategoryDialog from './components/CategoryDialog.vue'
 import WeatherForecast from './components/WeatherForecast.vue'
 import {
   DEFAULT_STATUS,
@@ -72,6 +73,14 @@ import { playSchoolbell, playTimerBeep } from './utils/sounds'
 import { recordBreakFromBreakState, recordStandaloneBreakSession } from './breakRecords'
 import { isTimeTrackingActive, startTimeTracking } from './timeTracking'
 import { getTodos, saveTodos as persistTodos } from './todosStorage'
+import {
+  getCategories,
+  loadActiveCategoryId,
+  resolveActiveCategoryId,
+  saveActiveCategoryId,
+  saveCategories as persistCategories,
+} from './categoriesStorage'
+import { createCategory, type TodoCategory } from './categories'
 import {
   loadCollapsedTodoIds,
   pruneCollapsedTodoIds,
@@ -131,7 +140,12 @@ const timerOptions = [
 
 const view = ref<ViewName>('clock')
 const todos = ref<Todo[]>([])
+const categories = ref<TodoCategory[]>([])
+const activeCategoryId = ref('')
 const collapsedTodoIds = ref<Set<string>>(loadCollapsedTodoIds())
+const categoryDialogOpen = ref(false)
+const categoryDialogMode = ref<'create' | 'edit'>('create')
+const editingCategory = ref<TodoCategory | null>(null)
 const settings = ref<AppSettings>({
   background: 'alpine',
   customBackgrounds: [],
@@ -159,7 +173,6 @@ const wallAlarm = ref<WallAlarm>({ enabled: false, hour: 7, minute: 0 })
 const wallAlarmTime = ref('07:00')
 const now = ref(Date.now())
 const selectedFocusMinutes = ref(30)
-const newTodoTitle = ref('')
 const settingsOpen = ref(false)
 const alarmOpen = ref(false)
 const restartConfirmOpen = ref(false)
@@ -171,14 +184,7 @@ const timeTrackingRef = ref<InstanceType<typeof TimeTracking> | null>(null)
 const metricsRef = ref<InstanceType<typeof MetricsCalendar> | null>(null)
 const editTarget = ref<EditTarget | null>(null)
 const deleteTarget = ref<DeleteTarget | null>(null)
-const deleteConfirmOpen = computed({
-  get: () => deleteTarget.value !== null,
-  set: (open) => {
-    if (!open) {
-      deleteTarget.value = null
-    }
-  },
-})
+const deleteConfirmOpen = ref(false)
 
 const deleteConfirmTitle = computed(() => {
   if (deleteTarget.value?.kind === 'subtodo') {
@@ -256,6 +262,34 @@ const editingNotes = computed(() => {
 const editingKind = computed<'todo' | 'subtodo'>(() =>
   editTarget.value?.kind === 'subtodo' ? 'subtodo' : 'todo',
 )
+
+const editingCategoryId = computed(() => editingTodo.value?.categoryId ?? activeCategoryId.value)
+
+const activeCategory = computed(
+  () => categories.value.find((category) => category.id === activeCategoryId.value) ?? null,
+)
+
+const activeCategoryTodos = computed(() =>
+  todos.value.filter((todo) => todo.categoryId === activeCategoryId.value),
+)
+
+const todoCountsByCategory = computed(() => {
+  const counts: Record<string, number> = {}
+
+  for (const category of categories.value) {
+    counts[category.id] = 0
+  }
+
+  for (const todo of todos.value) {
+    if (counts[todo.categoryId] !== undefined) {
+      counts[todo.categoryId] += 1
+    }
+  }
+
+  return counts
+})
+
+const canDeleteEditingCategory = computed(() => categories.value.length > 1)
 
 const pendingFocusEndLabel = computed(() => {
   const minutes = pendingFocusMinutes.value
@@ -403,52 +437,6 @@ const completedTodos = computed(
 )
 const openTodos = computed(() => todos.value.length - completedTodos.value)
 
-const TODO_LIST_COLUMN_TARGET_PX = 500
-const TODO_LIST_GAP_PX = 10
-
-const todoListRef = ref<HTMLElement | null>(null)
-const todoColumnsPerRow = ref(1)
-
-function updateTodoColumnsPerRow(width: number) {
-  const columns = Math.floor(
-    (width + TODO_LIST_GAP_PX) / (TODO_LIST_COLUMN_TARGET_PX + TODO_LIST_GAP_PX),
-  )
-  todoColumnsPerRow.value = Math.max(1, columns)
-}
-
-const todoRows = computed(() => {
-  const perRow = todoColumnsPerRow.value
-  const items = todos.value
-  if (!items.length) {
-    return [] as Todo[][]
-  }
-
-  const rows: Todo[][] = []
-  for (let index = 0; index < items.length; index += perRow) {
-    rows.push(items.slice(index, index + perRow))
-  }
-  return rows
-})
-
-watchEffect((onCleanup) => {
-  const listElement = todoListRef.value
-  if (!listElement) {
-    return
-  }
-
-  const observer = new ResizeObserver(([entry]) => {
-    const width =
-      entry.contentBoxSize?.[0]?.inlineSize ??
-      entry.borderBoxSize?.[0]?.inlineSize ??
-      entry.contentRect.width
-    updateTodoColumnsPerRow(width)
-  })
-  observer.observe(listElement)
-  updateTodoColumnsPerRow(listElement.getBoundingClientRect().width)
-
-  onCleanup(() => observer.disconnect())
-})
-
 const wallAlarmDisplay = computed(() => formatWallAlarmTime(wallAlarm.value.hour, wallAlarm.value.minute))
 
 const documentTitle = computed(() => {
@@ -506,7 +494,9 @@ onMounted(() => {
 
   registerSyncApplyHandler(async () => {
     settings.value = await getAppSettings()
+    categories.value = await getCategories()
     todos.value = await getTodos()
+    refreshActiveCategory()
     refreshCollapsedTodoIds()
     refreshDisplayedCustomBackground()
     await hydrateTimer()
@@ -546,13 +536,89 @@ function refreshDisplayedCustomBackground() {
 
 async function initializeApp() {
   settings.value = await getAppSettings()
+  categories.value = await getCategories()
   todos.value = await getTodos()
+  refreshActiveCategory()
   refreshCollapsedTodoIds()
   refreshDisplayedCustomBackground()
   await hydrateTimer()
   await hydrateWallAlarm()
   tick()
   await initSync()
+}
+
+function refreshActiveCategory() {
+  activeCategoryId.value = resolveActiveCategoryId(categories.value, activeCategoryId.value || loadActiveCategoryId())
+  saveActiveCategoryId(activeCategoryId.value)
+}
+
+function saveCategories() {
+  void persistCategories(categories.value)
+}
+
+function selectCategory(categoryId: string) {
+  activeCategoryId.value = categoryId
+  saveActiveCategoryId(categoryId)
+}
+
+function openCreateCategoryDialog() {
+  categoryDialogMode.value = 'create'
+  editingCategory.value = null
+  categoryDialogOpen.value = true
+}
+
+function openEditCategoryDialog(category: TodoCategory) {
+  categoryDialogMode.value = 'edit'
+  editingCategory.value = category
+  categoryDialogOpen.value = true
+}
+
+function handleCategorySave(name: string) {
+  if (categoryDialogMode.value === 'create') {
+    const category = createCategory(name)
+    categories.value = [...categories.value, category]
+    saveCategories()
+    selectCategory(category.id)
+    return
+  }
+
+  const category = editingCategory.value
+
+  if (!category) {
+    return
+  }
+
+  category.name = name
+  categories.value = [...categories.value]
+  saveCategories()
+}
+
+function handleCategoryDelete() {
+  const category = editingCategory.value
+
+  if (!category || categories.value.length <= 1) {
+    return
+  }
+
+  const fallbackCategory = categories.value.find((entry) => entry.id !== category.id)
+
+  if (!fallbackCategory) {
+    return
+  }
+
+  for (const todo of todos.value) {
+    if (todo.categoryId === category.id) {
+      todo.categoryId = fallbackCategory.id
+    }
+  }
+
+  categories.value = categories.value.filter((entry) => entry.id !== category.id)
+  saveCategories()
+  saveTodos()
+
+  if (activeCategoryId.value === category.id) {
+    selectCategory(fallbackCategory.id)
+  }
 }
 
 function refreshCollapsedTodoIds() {
@@ -917,22 +983,22 @@ async function endBreakEarly() {
   await endBreak(false)
 }
 
-function addTodo() {
-  const title = newTodoTitle.value.trim()
+function addTodo(title: string) {
+  const trimmed = title.trim()
 
-  if (!title) {
+  if (!trimmed || !activeCategoryId.value) {
     return
   }
 
   todos.value.unshift({
     id: crypto.randomUUID(),
-    title,
+    title: trimmed,
     status: DEFAULT_STATUS,
+    categoryId: activeCategoryId.value,
     createdAt: Date.now(),
     subtodos: [],
     notes: '',
   })
-  newTodoTitle.value = ''
   saveTodos()
 }
 
@@ -962,6 +1028,7 @@ function removeSubtodo(todoId: string, subtodoId: string) {
 
 function requestRemoveTodo(todo: Todo) {
   deleteTarget.value = { kind: 'todo', todoId: todo.id, title: todo.title }
+  deleteConfirmOpen.value = true
 }
 
 function requestRemoveSubtodo(todoId: string, subtodo: Subtodo) {
@@ -971,10 +1038,12 @@ function requestRemoveSubtodo(todoId: string, subtodo: Subtodo) {
     subtodoId: subtodo.id,
     title: subtodo.title,
   }
+  deleteConfirmOpen.value = true
 }
 
 function confirmDelete() {
   const target = deleteTarget.value
+  deleteConfirmOpen.value = false
   deleteTarget.value = null
 
   if (!target) {
@@ -990,6 +1059,7 @@ function confirmDelete() {
 }
 
 function cancelDelete() {
+  deleteConfirmOpen.value = false
   deleteTarget.value = null
 }
 
@@ -1045,7 +1115,12 @@ function openEditDialog(todoId: string, target: { kind: 'todo' } | { kind: 'subt
   }
 }
 
-function handleEditSave(payload: { title: string; status: TaskStatus; notes: string }) {
+function handleEditSave(payload: {
+  title: string
+  status: TaskStatus
+  notes: string
+  categoryId?: string
+}) {
   const target = editTarget.value
   const todo = editingTodo.value
 
@@ -1077,6 +1152,11 @@ function handleEditSave(payload: { title: string; status: TaskStatus; notes: str
   todo.title = payload.title
   todo.status = payload.status
   todo.notes = payload.notes
+
+  if (payload.categoryId && categories.value.some((category) => category.id === payload.categoryId)) {
+    todo.categoryId = payload.categoryId
+  }
+
   handleTaskStatusChange(todo, {
     kind: 'todo',
     oldStatus,
@@ -1490,56 +1570,29 @@ function removeCustomBackground(index: number) {
         <TimeTracking v-if="settings.timeTrackingEnabled" ref="timeTrackingRef" />
 
         <article v-if="settings.todosEnabled" class="todo-panel">
-          <div class="todo-panel__intro">
-            <div class="panel-heading">
-              <div>
-                <span class="kicker">Tasks</span>
-                <h2>Quick Add</h2>
-              </div>
-              <span class="status-pill">{{ completedTodos }}/{{ todos.length }} done</span>
-            </div>
+          <TodoCategoryTabs
+            :categories="categories"
+            :active-category-id="activeCategoryId"
+            :todo-counts="todoCountsByCategory"
+            @select="selectCategory"
+            @create="openCreateCategoryDialog"
+            @edit="openEditCategoryDialog"
+          />
 
-            <form class="todo-form" @submit.prevent="addTodo">
-              <div class="todo-input-wrap">
-                <InputText
-                  v-model="newTodoTitle"
-                  placeholder="Enter a todo"
-                  aria-label="New todo"
-                  class="todo-input backdrop-glass"
-                />
-                <button class="todo-input-addon" type="submit" aria-label="Add todo">
-                  <Plus :size="16" />
-                </button>
-              </div>
-            </form>
-          </div>
-
-          <div
-            ref="todoListRef"
-            class="todo-list"
-            :style="{ '--todo-columns-per-row': todoColumnsPerRow }"
-            aria-label="Todo list"
-          >
-            <div
-              v-for="(row, rowIndex) in todoRows"
-              :key="`todo-row-${rowIndex}`"
-              class="todo-list__row"
-            >
-              <div v-for="todo in row" :key="todo.id" class="todo-list__column">
-                <TodoCard
-                  :todo="todo"
-                  :collapsed="isTodoCollapsed(todo.id)"
-                  @status-change="(event) => handleTaskStatusChange(todo, event)"
-                  @subtodo-added="saveTodos"
-                  @request-edit="(target) => openEditDialog(todo.id, target)"
-                  @request-remove="requestRemoveTodo(todo)"
-                  @request-remove-subtodo="(subtodo) => requestRemoveSubtodo(todo.id, subtodo)"
-                  @archive="archiveTodo(todo)"
-                  @toggle-collapse="toggleTodoCollapse(todo.id)"
-                />
-              </div>
-            </div>
-          </div>
+          <TodoBoard
+            v-if="activeCategory"
+            :todos="activeCategoryTodos"
+            :category-name="activeCategory.name"
+            :is-collapsed="isTodoCollapsed"
+            @add="addTodo"
+            @status-change="handleTaskStatusChange"
+            @subtodo-added="saveTodos"
+            @request-edit="openEditDialog"
+            @request-remove="requestRemoveTodo"
+            @request-remove-subtodo="requestRemoveSubtodo"
+            @archive="archiveTodo"
+            @toggle-collapse="toggleTodoCollapse"
+          />
         </article>
       </section>
 
@@ -1909,7 +1962,18 @@ function removeCustomBackground(index: number) {
       :status="editingStatus"
       :notes="editingNotes"
       :task-kind="editingKind"
+      :categories="categories"
+      :category-id="editingCategoryId"
       @save="handleEditSave"
+    />
+
+    <CategoryDialog
+      v-model:visible="categoryDialogOpen"
+      :mode="categoryDialogMode"
+      :category="editingCategory"
+      :can-delete="canDeleteEditingCategory"
+      @save="handleCategorySave"
+      @delete="handleCategoryDelete"
     />
   </main>
 </template>

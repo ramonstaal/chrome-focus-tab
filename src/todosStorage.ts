@@ -1,4 +1,6 @@
-import { DEFAULT_STATUS, normalizeTodos, type Todo } from './todos'
+import { DEFAULT_STATUS, assignTodoCategoryIds, normalizeTodos, type Todo } from './todos'
+import { DEFAULT_CATEGORY_ID } from './categories'
+import { getCategories } from './categoriesStorage'
 import { scheduleSyncPush } from './sync/hooks'
 
 export const TODOS_STORAGE_KEY = 'todos'
@@ -14,6 +16,7 @@ export function createDefaultTodos(): Todo[] {
       id: crypto.randomUUID(),
       title: 'Plan the first deep-work task',
       status: DEFAULT_STATUS,
+      categoryId: DEFAULT_CATEGORY_ID,
       createdAt: Date.now(),
       notes: '',
       subtodos: [
@@ -65,28 +68,35 @@ function loadFallbackTodos(): Todo[] {
 }
 
 export async function getTodos(): Promise<Todo[]> {
+  const categories = await getCategories()
+  let todos: Todo[]
+
   if (hasChromeStorage()) {
     try {
       const data = await chrome.storage.local.get(TODOS_STORAGE_KEY)
       const stored = data[TODOS_STORAGE_KEY]
 
       if (Array.isArray(stored) && stored.length > 0) {
-        return normalizeTodos(stored)
-      }
+        todos = normalizeTodos(stored)
+      } else {
+        const legacy = loadLegacyTodos()
 
-      const legacy = loadLegacyTodos()
-
-      if (legacy && legacy.length > 0) {
-        await saveTodos(legacy, { skipSync: true })
-        localStorage.removeItem(TODOS_LEGACY_KEY)
-        return legacy
+        if (legacy && legacy.length > 0) {
+          todos = legacy
+          await saveTodos(legacy, { skipSync: true })
+          localStorage.removeItem(TODOS_LEGACY_KEY)
+        } else {
+          todos = loadFallbackTodos()
+        }
       }
     } catch {
-      // Fall back below.
+      todos = loadFallbackTodos()
     }
+  } else {
+    todos = loadFallbackTodos()
   }
 
-  return loadFallbackTodos()
+  return assignTodoCategoryIds(todos, categories)
 }
 
 export async function saveTodos(

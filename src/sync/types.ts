@@ -6,6 +6,7 @@ import type { CompletedSubtodoAction, CompletedTodoAction } from '../completedAc
 import type { FocusBlock } from '../focusMetrics'
 import type { TimeEntry } from '../timeTracking'
 import type { Todo } from '../todos'
+import type { TodoCategory } from '../categories'
 
 export const SYNC_BUNDLE_VERSION = 1 as const
 
@@ -18,6 +19,7 @@ export type SyncableAppSettings = Omit<
 export interface SyncBundle {
   version: typeof SYNC_BUNDLE_VERSION
   updatedAt: number
+  todoCategories: TodoCategory[]
   todos: Todo[]
   archivedTodos: ArchivedTodo[]
   completedTodoActions: CompletedTodoAction[]

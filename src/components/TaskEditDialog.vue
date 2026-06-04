@@ -4,24 +4,34 @@ import Dialog from 'primevue/dialog'
 import InputText from 'primevue/inputtext'
 import { Activity, Check, Circle, CircleCheck, CirclePause, Eye, Pencil, X } from '@lucide/vue'
 import { STATUS_LABEL, TASK_STATUSES, type TaskStatus } from '../todos'
+import type { TodoCategory } from '../categories'
 import { renderMarkdown } from '../utils/markdown'
 
 const visible = defineModel<boolean>('visible', { required: true })
 
-const props = defineProps<{
-  title: string
-  status: TaskStatus
-  notes: string
-  taskKind: 'todo' | 'subtodo'
-}>()
+const props = withDefaults(
+  defineProps<{
+    title: string
+    status: TaskStatus
+    notes: string
+    taskKind: 'todo' | 'subtodo'
+    categories?: TodoCategory[]
+    categoryId?: string
+  }>(),
+  {
+    categories: () => [],
+    categoryId: '',
+  },
+)
 
 const emit = defineEmits<{
-  save: [payload: { title: string; status: TaskStatus; notes: string }]
+  save: [payload: { title: string; status: TaskStatus; notes: string; categoryId?: string }]
 }>()
 
 const titleDraft = ref(props.title)
 const statusDraft = ref<TaskStatus>(props.status)
 const notesDraft = ref(props.notes)
+const categoryDraft = ref(props.categoryId)
 const notesMode = ref<'edit' | 'preview'>('edit')
 const inputRef = useTemplateRef<InstanceType<typeof InputText>>('inputRef')
 
@@ -58,12 +68,18 @@ const headerKicker = computed(() => (props.taskKind === 'todo' ? 'Task' : 'Subta
 
 const previewTitle = computed(() => titleDraft.value.trim() || 'Untitled task')
 
-const isDirty = computed(
-  () =>
+const isDirty = computed(() => {
+  const baseDirty =
     titleDraft.value.trim() !== props.title.trim() ||
     statusDraft.value !== props.status ||
-    notesDraft.value !== props.notes,
-)
+    notesDraft.value !== props.notes
+
+  if (props.taskKind !== 'todo' || props.categories.length === 0) {
+    return baseDirty
+  }
+
+  return baseDirty || categoryDraft.value !== props.categoryId
+})
 
 watch(visible, async (isOpen) => {
   if (!isOpen) {
@@ -73,6 +89,7 @@ watch(visible, async (isOpen) => {
   titleDraft.value = props.title
   statusDraft.value = props.status
   notesDraft.value = props.notes
+  categoryDraft.value = props.categoryId
   notesMode.value = 'edit'
   await nextTick()
   const el = (inputRef.value as unknown as { $el?: HTMLElement } | null)?.$el as
@@ -96,6 +113,9 @@ function handleSave() {
     title: titleDraft.value.trim(),
     status: statusDraft.value,
     notes: notesDraft.value,
+    ...(props.taskKind === 'todo' && props.categories.length > 0
+      ? { categoryId: categoryDraft.value }
+      : {}),
   })
   visible.value = false
 }
@@ -146,6 +166,15 @@ function pickStatus(value: TaskStatus) {
           placeholder="What needs doing?"
           @keyup.enter="handleSave"
         />
+      </label>
+
+      <label v-if="taskKind === 'todo' && categories.length > 0" class="task-edit-dialog__field">
+        <span class="task-edit-dialog__field-label">Category</span>
+        <select v-model="categoryDraft" class="task-edit-dialog__select" aria-label="Category">
+          <option v-for="category in categories" :key="category.id" :value="category.id">
+            {{ category.name }}
+          </option>
+        </select>
       </label>
 
       <div class="task-edit-dialog__field">
@@ -473,6 +502,31 @@ function pickStatus(value: TaskStatus) {
   border-color: rgba(255, 255, 255, 0.4);
   box-shadow: 0 0 0 4px rgba(255, 255, 255, 0.06);
   outline: none;
+}
+
+.task-edit-dialog__select {
+  width: 100%;
+  padding: 12px 14px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 12px;
+  background: var(--subtodo-list-bg);
+  color: var(--text);
+  font: inherit;
+  font-size: 14px;
+  color-scheme: dark;
+  cursor: pointer;
+}
+
+.task-edit-dialog__select:hover {
+  background: var(--todo-card-bg-hover);
+  border-color: rgba(255, 255, 255, 0.2);
+}
+
+.task-edit-dialog__select:focus {
+  outline: none;
+  background: var(--todo-card-bg-hover);
+  border-color: rgba(255, 255, 255, 0.4);
+  box-shadow: 0 0 0 4px rgba(255, 255, 255, 0.06);
 }
 
 .task-edit-dialog__status {

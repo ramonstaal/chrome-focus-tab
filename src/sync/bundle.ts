@@ -17,6 +17,8 @@ import {
 import { getFocusBlocks, replaceFocusBlocks } from '../focusMetrics'
 import { getTimeEntries, replaceTimeEntries } from '../timeTracking'
 import { getTodos, saveTodos } from '../todosStorage'
+import { getCategories, saveCategories } from '../categoriesStorage'
+import { createDefaultCategories } from '../categories'
 import { SYNC_LOCAL_UPDATED_AT_KEY } from './config'
 import { SYNC_BUNDLE_VERSION, type SyncableAppSettings, type SyncBundle } from './types'
 
@@ -66,9 +68,10 @@ export async function setLocalUpdatedAt(updatedAt: number): Promise<void> {
 }
 
 export async function collectBundle(updatedAt = Date.now()): Promise<SyncBundle> {
-  const [settings, todos, archivedTodos, completedTodoActions, completedSubtodoActions, focusBlocks, breakRecords, timeEntries, timer, wallAlarm] =
+  const [settings, todoCategories, todos, archivedTodos, completedTodoActions, completedSubtodoActions, focusBlocks, breakRecords, timeEntries, timer, wallAlarm] =
     await Promise.all([
       getAppSettings(),
+      getCategories(),
       getTodos(),
       getArchivedTodos(),
       getCompletedTodoActions(),
@@ -83,6 +86,7 @@ export async function collectBundle(updatedAt = Date.now()): Promise<SyncBundle>
   return {
     version: SYNC_BUNDLE_VERSION,
     updatedAt,
+    todoCategories,
     todos,
     archivedTodos,
     completedTodoActions,
@@ -110,6 +114,9 @@ export async function applyBundle(bundle: SyncBundle): Promise<void> {
   }
 
   await Promise.all([
+    saveCategories(bundle.todoCategories?.length ? bundle.todoCategories : createDefaultCategories(), {
+      skipSync: true,
+    }),
     saveTodos(bundle.todos, { skipSync: true }),
     replaceArchivedTodos(bundle.archivedTodos, { skipSync: true }),
     replaceCompletedTodoActions(bundle.completedTodoActions, { skipSync: true }),

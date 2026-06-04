@@ -1,3 +1,5 @@
+import { DEFAULT_CATEGORY_ID } from './categories'
+
 export type TaskStatus = 'open' | 'busy' | 'on-hold' | 'done'
 
 export interface Subtodo {
@@ -11,6 +13,7 @@ export interface Todo {
   id: string
   title: string
   status: TaskStatus
+  categoryId: string
   createdAt: number
   subtodos: Subtodo[]
   notes: string
@@ -29,6 +32,14 @@ export const DEFAULT_STATUS: TaskStatus = 'open'
 
 export function isTaskDone(status: TaskStatus): boolean {
   return status === 'done'
+}
+
+export function compareTaskStatus(a: TaskStatus, b: TaskStatus): number {
+  return TASK_STATUSES.indexOf(a) - TASK_STATUSES.indexOf(b)
+}
+
+export function sortByTaskStatus<T extends { status: TaskStatus }>(items: readonly T[]): T[] {
+  return [...items].sort((a, b) => compareTaskStatus(a.status, b.status))
 }
 
 /**
@@ -62,11 +73,16 @@ export function normalizeTodo(raw: unknown): Todo {
   const legacyDone = value.done === true
   const status = value.status ? coerceStatus(value.status) : legacyDone ? 'done' : DEFAULT_STATUS
   const subtodos = Array.isArray(value.subtodos) ? value.subtodos.map(normalizeSubtodo) : []
+  const categoryId =
+    typeof value.categoryId === 'string' && value.categoryId.length > 0
+      ? value.categoryId
+      : DEFAULT_CATEGORY_ID
 
   return {
     id: typeof value.id === 'string' ? value.id : crypto.randomUUID(),
     title: typeof value.title === 'string' ? value.title : '',
     status,
+    categoryId,
     createdAt: typeof value.createdAt === 'number' ? value.createdAt : Date.now(),
     subtodos,
     notes: typeof value.notes === 'string' ? value.notes : '',
@@ -79,4 +95,14 @@ export function normalizeTodos(raw: unknown): Todo[] {
   }
 
   return raw.map(normalizeTodo)
+}
+
+export function assignTodoCategoryIds(todos: Todo[], categories: { id: string }[]): Todo[] {
+  const fallbackId = categories[0]?.id ?? DEFAULT_CATEGORY_ID
+  const validIds = new Set(categories.map((category) => category.id))
+
+  return todos.map((todo) => ({
+    ...todo,
+    categoryId: validIds.has(todo.categoryId) ? todo.categoryId : fallbackId,
+  }))
 }

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { nextTick } from 'vue'
 import Dialog from 'primevue/dialog'
 
 const visible = defineModel<boolean>('visible', { required: true })
@@ -22,13 +23,17 @@ const emit = defineEmits<{
 }>()
 
 function handleCancel() {
-  visible.value = false
   emit('cancel')
+  void nextTick(() => {
+    visible.value = false
+  })
 }
 
 function handleConfirm() {
-  visible.value = false
   emit('confirm')
+  void nextTick(() => {
+    visible.value = false
+  })
 }
 </script>
 
