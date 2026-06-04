@@ -4,6 +4,15 @@ const FOCUS_TIMER_ALARM = 'focus-timer'
 const BREAK_TIMER_ALARM = 'break-timer'
 const WALL_ALARM_NAME = 'wall-alarm'
 
+async function triggerSyncPush() {
+  try {
+    const { pushSyncFromServiceWorker } = await import('./sync/coordinator')
+    await pushSyncFromServiceWorker()
+  } catch {
+    // Sync is optional when the module is unavailable.
+  }
+}
+
 function toDateKey(ms) {
   const date = new Date(ms)
   const year = date.getFullYear()
@@ -58,6 +67,8 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
 
     await chrome.storage.local.set({ [TIMER_STORAGE_KEY]: resumed })
 
+    await triggerSyncPush()
+
     if (resumed.active && resumed.endsAt > Date.now()) {
       await chrome.alarms.create(FOCUS_TIMER_ALARM, { when: resumed.endsAt })
     }
@@ -99,6 +110,8 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
       focusPlannedMs: undefined,
     },
   })
+
+  await triggerSyncPush()
 
   const title = `${kind} complete`
   const message =

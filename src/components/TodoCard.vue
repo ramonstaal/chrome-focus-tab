@@ -6,7 +6,10 @@ import { DEFAULT_STATUS, isTaskDone, type Subtodo, type TaskStatus, type Todo } 
 import TaskStatusBadge from './TaskStatusBadge.vue'
 import { renderMarkdown } from '../utils/markdown'
 
-const props = defineProps<{ todo: Todo }>()
+const props = defineProps<{
+  todo: Todo
+  collapsed?: boolean
+}>()
 
 const emit = defineEmits<{
   'status-change': [
@@ -19,6 +22,7 @@ const emit = defineEmits<{
   'request-remove-subtodo': [subtodo: Subtodo]
   'request-remove': []
   archive: []
+  'toggle-collapse': []
 }>()
 
 const subtodoDraft = ref('')
@@ -49,6 +53,16 @@ const isFullyComplete = computed(() => {
   }
 
   return props.todo.subtodos.every((subtodo) => isTaskDone(subtodo.status))
+})
+
+const collapsedSummary = computed(() => {
+  const count = props.todo.subtodos.length
+
+  if (count === 0) {
+    return ''
+  }
+
+  return count === 1 ? '1 subtodo' : `${count} subtodos`
 })
 
 function setTodoStatus(newStatus: TaskStatus) {
@@ -134,26 +148,42 @@ function handleSubtodoPaste(event: ClipboardEvent) {
 <template>
   <article
     class="todo-card"
-    :class="[`todo-card--status-${todo.status}`, { 'todo-card--done': isTaskDone(todo.status) }]"
+    :class="[
+      `todo-card--status-${todo.status}`,
+      { 'todo-card--done': isTaskDone(todo.status), 'todo-card--collapsed': collapsed },
+    ]"
   >
-    <div class="todo-row">
+    <div class="todo-row todo-row--with-collapse">
+      <button
+        type="button"
+        class="todo-collapse-toggle"
+        :class="{ 'todo-collapse-toggle--collapsed': collapsed }"
+        :aria-expanded="!collapsed"
+        :aria-label="collapsed ? 'Expand todo' : 'Collapse todo'"
+        @click="emit('toggle-collapse')"
+      >
+        <ChevronDown :size="15" />
+      </button>
       <TaskStatusBadge
         :status="todo.status"
         :aria-label="`Todo status: change for '${todo.title}'`"
         @change="setTodoStatus"
       />
-      <button
-        type="button"
-        class="todo-row__title"
-        :class="`todo-row__title--status-${todo.status}`"
-        :title="`Edit '${todo.title}'`"
-        @click="emit('request-edit', { kind: 'todo' })"
-      >
-        {{ todo.title }}
-      </button>
+      <div class="todo-row__main">
+        <button
+          type="button"
+          class="todo-row__title"
+          :class="`todo-row__title--status-${todo.status}`"
+          :title="`Edit '${todo.title}'`"
+          @click="emit('request-edit', { kind: 'todo' })"
+        >
+          {{ todo.title }}
+        </button>
+        <span v-if="collapsed && collapsedSummary" class="todo-row__meta">{{ collapsedSummary }}</span>
+      </div>
       <div class="todo-row-actions">
         <button
-          v-if="hasTodoNotes"
+          v-if="hasTodoNotes && !collapsed"
           class="icon-button todo-notes-toggle"
           :class="{ 'todo-notes-toggle--open': todoNotesOpen }"
           type="button"
@@ -194,12 +224,12 @@ function handleSubtodoPaste(event: ClipboardEvent) {
     </div>
 
     <div
-      v-if="hasTodoNotes && todoNotesOpen"
+      v-if="!collapsed && hasTodoNotes && todoNotesOpen"
       class="todo-notes markdown-body"
       v-html="renderedTodoNotes"
     ></div>
 
-    <div v-if="todo.subtodos.length" class="subtodo-list">
+    <div v-if="!collapsed && todo.subtodos.length" class="subtodo-list">
       <template v-for="subtodo in todo.subtodos" :key="subtodo.id">
         <div
           class="subtodo-row"
@@ -263,7 +293,7 @@ function handleSubtodoPaste(event: ClipboardEvent) {
       </template>
     </div>
 
-    <form class="subtodo-form" @submit.prevent="addSubtodo">
+    <form v-if="!collapsed" class="subtodo-form" @submit.prevent="addSubtodo">
       <div class="todo-input-wrap">
         <InputText
           v-model="subtodoDraft"
@@ -280,6 +310,61 @@ function handleSubtodoPaste(event: ClipboardEvent) {
 </template>
 
 <style>
+.todo-row--with-collapse {
+  grid-template-columns: auto auto 1fr auto;
+}
+
+.todo-row__main {
+  display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.todo-collapse-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  color: var(--muted);
+  background: transparent;
+  cursor: pointer;
+  transition:
+    color 160ms ease,
+    background 160ms ease,
+    transform 160ms ease;
+}
+
+.todo-collapse-toggle:hover {
+  color: var(--text);
+  background: var(--soft);
+}
+
+.todo-collapse-toggle--collapsed {
+  transform: rotate(-90deg);
+}
+
+.todo-row__meta {
+  flex: 0 0 auto;
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--muted);
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+}
+
+.todo-card--collapsed {
+  padding-bottom: 10px;
+}
+
 .todo-row__title,
 .subtodo-row__title {
   min-width: 0;

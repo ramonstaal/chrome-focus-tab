@@ -181,6 +181,29 @@ If a release ships with a serious bug:
 
 ---
 
+## Sync server (Cloudflare Worker)
+
+The optional cross-device sync backend lives in `sync-server/` and deploys via [`.github/workflows/deploy-sync.yml`](.github/workflows/deploy-sync.yml) when `sync-server/**` changes on `main`.
+
+### One-time Cloudflare + GitHub setup
+
+1. Create a Cloudflare API token (**Edit Cloudflare Workers** template) and note your Account ID.
+2. Create KV namespaces and update `sync-server/wrangler.toml`:
+
+   ```bash
+   cd sync-server && npm ci
+   npx wrangler kv namespace create SYNC_KV
+   npx wrangler kv namespace create SYNC_KV --preview
+   ```
+
+3. Add GitHub Actions secrets: `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`.
+4. Push to `main` — confirm **Deploy sync server** succeeds.
+5. Set `VITE_SYNC_API_URL` in `.env.production` to the deployed `*.workers.dev` URL before building the extension for sync users.
+
+See [README — Sync](README.md#sync-optional) for end-user token setup.
+
+---
+
 ## (Optional) Publishing to the Chrome Web Store
 
 The same `release/focus-todo-new-tab-v<version>.zip` produced by `npm run package` is the exact artifact the Chrome Web Store expects.
@@ -192,4 +215,4 @@ The same `release/focus-todo-new-tab-v<version>.zip` produced by `npm run packag
 
 For subsequent versions, upload the new zip to the existing item and re-submit.
 
-> The Chrome Web Store enforces some extra constraints not checked here (icon sizes, screenshot dimensions, privacy policy URL for extensions that touch user data). The extension itself stays entirely local — no network, no analytics — so the privacy section is short.
+> The Chrome Web Store enforces some extra constraints not checked here (icon sizes, screenshot dimensions, privacy policy URL for extensions that touch user data). If users enable optional sync, disclose that data is sent to their Cloudflare Worker (see README).

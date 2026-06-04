@@ -12,6 +12,8 @@ dist
 dist-ssr
 release
 *.local
+.env.production
+sync-server/.wrangler
 
 # Editor directories and files
 .vscode/*

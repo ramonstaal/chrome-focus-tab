@@ -1,3 +1,5 @@
+import { scheduleImmediateSyncPush } from './sync/hooks'
+
 export type TimerKind = 'Focus' | 'Short break' | 'Long break'
 export type BreakKind = 'Short break' | 'Long break'
 
@@ -209,7 +211,10 @@ export async function getStorageTimer(): Promise<TimerState | null> {
   }
 }
 
-export async function setStorageTimer(timer: TimerState): Promise<void> {
+export async function setStorageTimer(
+  timer: TimerState,
+  options: { skipSync?: boolean } = {},
+): Promise<void> {
   const normalized = normalizeTimerState(timer)
 
   if (hasChromeStorage()) {
@@ -221,6 +226,10 @@ export async function setStorageTimer(timer: TimerState): Promise<void> {
   }
 
   localStorage.setItem(TIMER_FALLBACK_KEY, JSON.stringify(normalized))
+
+  if (!options.skipSync) {
+    scheduleImmediateSyncPush()
+  }
 }
 
 export async function scheduleTimerAlarm(endsAt: number): Promise<void> {
@@ -284,8 +293,15 @@ export async function getWallAlarm(): Promise<WallAlarm> {
   return (data[WALL_ALARM_STORAGE_KEY] as WallAlarm | undefined) ?? defaultWallAlarm()
 }
 
-export async function setWallAlarm(alarm: WallAlarm): Promise<void> {
+export async function setWallAlarm(
+  alarm: WallAlarm,
+  options: { skipSync?: boolean } = {},
+): Promise<void> {
   await chrome.storage.local.set({ [WALL_ALARM_STORAGE_KEY]: alarm })
+
+  if (!options.skipSync) {
+    scheduleImmediateSyncPush()
+  }
 }
 
 export async function scheduleWallAlarm(hour: number, minute: number): Promise<void> {

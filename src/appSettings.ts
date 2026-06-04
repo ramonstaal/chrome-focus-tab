@@ -15,6 +15,11 @@ export interface AppSettings {
   weatherLocationLabel: string
   weatherUnits: WeatherUnits
   weatherForecastDays: 5 | 7
+  syncEnabled: boolean
+  syncToken: string
+  syncLastAt: number | null
+  syncLastError: string
+  syncEtag: string | null
 }
 
 export const SETTINGS_STORAGE_KEY = 'appSettings'
@@ -34,6 +39,11 @@ const defaultSettings: AppSettings = {
   weatherLocationLabel: '',
   weatherUnits: 'celsius',
   weatherForecastDays: 7,
+  syncEnabled: false,
+  syncToken: '',
+  syncLastAt: null,
+  syncLastError: '',
+  syncEtag: null,
 }
 
 export function pickRandomCustomBackground(images: string[]): string {
@@ -101,6 +111,14 @@ function normalizeSettings(raw: unknown): AppSettings {
       value.weatherForecastDays === 5 || value.weatherForecastDays === 7
         ? value.weatherForecastDays
         : defaultSettings.weatherForecastDays,
+    syncEnabled: typeof value.syncEnabled === 'boolean' ? value.syncEnabled : defaultSettings.syncEnabled,
+    syncToken: typeof value.syncToken === 'string' ? value.syncToken : defaultSettings.syncToken,
+    syncLastAt:
+      typeof value.syncLastAt === 'number' && Number.isFinite(value.syncLastAt)
+        ? value.syncLastAt
+        : defaultSettings.syncLastAt,
+    syncLastError: typeof value.syncLastError === 'string' ? value.syncLastError : defaultSettings.syncLastError,
+    syncEtag: typeof value.syncEtag === 'string' ? value.syncEtag : defaultSettings.syncEtag,
   }
 }
 
@@ -135,7 +153,12 @@ export async function getAppSettings(): Promise<AppSettings> {
   return loadFallbackSettings()
 }
 
-export async function setAppSettings(settings: AppSettings): Promise<void> {
+import { scheduleSyncPush } from './sync/hooks'
+
+export async function setAppSettings(
+  settings: AppSettings,
+  options: { skipSync?: boolean } = {},
+): Promise<void> {
   const normalized = normalizeSettings(settings)
 
   if (hasChromeStorage()) {
@@ -150,5 +173,9 @@ export async function setAppSettings(settings: AppSettings): Promise<void> {
     localStorage.setItem(SETTINGS_FALLBACK_KEY, JSON.stringify(normalized))
   } catch {
     // Large custom backgrounds can exceed quota; chrome.storage above should still persist.
+  }
+
+  if (!options.skipSync) {
+    scheduleSyncPush()
   }
 }

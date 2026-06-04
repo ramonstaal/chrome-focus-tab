@@ -27,7 +27,6 @@ import TodoCard from './components/TodoCard.vue'
 import WeatherForecast from './components/WeatherForecast.vue'
 import {
   DEFAULT_STATUS,
-  normalizeTodos,
   type Subtodo,
   type TaskStatus,
   type Todo,
@@ -72,6 +71,19 @@ import { formatDuration } from './utils/duration'
 import { playSchoolbell, playTimerBeep } from './utils/sounds'
 import { recordBreakFromBreakState, recordStandaloneBreakSession } from './breakRecords'
 import { isTimeTrackingActive, startTimeTracking } from './timeTracking'
+import { getTodos, saveTodos as persistTodos } from './todosStorage'
+import {
+  loadCollapsedTodoIds,
+  pruneCollapsedTodoIds,
+  saveCollapsedTodoIds,
+} from './collapsedTodos'
+import {
+  getSyncApiUrl,
+  initSync,
+  registerSyncApplyHandler,
+  stopSyncPolling,
+  syncNow,
+} from './sync/coordinator'
 
 type ViewName = 'clock' | 'settings' | 'metrics'
 
@@ -89,33 +101,8 @@ type DeleteTarget =
   | { kind: 'todo'; todoId: string; title: string }
   | { kind: 'subtodo'; todoId: string; subtodoId: string; title: string }
 
-const TODO_KEY = 'focus-new-tab.todos'
 const LEGACY_TIMER_KEY = 'focus-new-tab.timer'
 const DEFAULT_DOCUMENT_TITLE = 'Focus Todo'
-
-const defaultTodos: Todo[] = [
-  {
-    id: crypto.randomUUID(),
-    title: 'Plan the first deep-work task',
-    status: DEFAULT_STATUS,
-    createdAt: Date.now(),
-    notes: '',
-    subtodos: [
-      {
-        id: crypto.randomUUID(),
-        title: 'Break it into small steps',
-        status: DEFAULT_STATUS,
-        notes: '',
-      },
-      {
-        id: crypto.randomUUID(),
-        title: 'Start a 30 minute focus session',
-        status: DEFAULT_STATUS,
-        notes: '',
-      },
-    ],
-  },
-]
 
 const backgroundPresets: BackgroundPreset[] = [
   {
@@ -143,7 +130,8 @@ const timerOptions = [
 ]
 
 const view = ref<ViewName>('clock')
-const todos = ref<Todo[]>(loadTodos())
+const todos = ref<Todo[]>([])
+const collapsedTodoIds = ref<Set<string>>(loadCollapsedTodoIds())
 const settings = ref<AppSettings>({
   background: 'alpine',
   customBackgrounds: [],
@@ -158,6 +146,11 @@ const settings = ref<AppSettings>({
   weatherLocationLabel: '',
   weatherUnits: 'celsius',
   weatherForecastDays: 7,
+  syncEnabled: false,
+  syncToken: '',
+  syncLastAt: null,
+  syncLastError: '',
+  syncEtag: null,
 })
 const displayedCustomBackground = ref('')
 const timer = ref<TimerState>(emptyTimerState())
@@ -511,6 +504,16 @@ onMounted(() => {
   tick()
   clockInterval = window.setInterval(tick, 1000)
 
+  registerSyncApplyHandler(async () => {
+    settings.value = await getAppSettings()
+    todos.value = await getTodos()
+    refreshCollapsedTodoIds()
+    refreshDisplayedCustomBackground()
+    await hydrateTimer()
+    await hydrateWallAlarm()
+    await metricsRef.value?.reload?.()
+  })
+
   if (typeof chrome !== 'undefined' && chrome.storage?.onChanged) {
     chrome.storage.onChanged.addListener(handleStorageChange)
   }
@@ -522,6 +525,8 @@ onUnmounted(() => {
   if (clockInterval) {
     window.clearInterval(clockInterval)
   }
+
+  stopSyncPolling()
 
   if (typeof chrome !== 'undefined' && chrome.storage?.onChanged) {
     chrome.storage.onChanged.removeListener(handleStorageChange)
@@ -541,10 +546,37 @@ function refreshDisplayedCustomBackground() {
 
 async function initializeApp() {
   settings.value = await getAppSettings()
+  todos.value = await getTodos()
+  refreshCollapsedTodoIds()
   refreshDisplayedCustomBackground()
   await hydrateTimer()
   await hydrateWallAlarm()
   tick()
+  await initSync()
+}
+
+function refreshCollapsedTodoIds() {
+  collapsedTodoIds.value = pruneCollapsedTodoIds(
+    collapsedTodoIds.value,
+    todos.value.map((todo) => todo.id),
+  )
+}
+
+function isTodoCollapsed(todoId: string): boolean {
+  return collapsedTodoIds.value.has(todoId)
+}
+
+function toggleTodoCollapse(todoId: string) {
+  const next = new Set(collapsedTodoIds.value)
+
+  if (next.has(todoId)) {
+    next.delete(todoId)
+  } else {
+    next.add(todoId)
+  }
+
+  collapsedTodoIds.value = next
+  saveCollapsedTodoIds(next)
 }
 
 function loadJson<T>(key: string, fallback: T): T {
@@ -561,23 +593,41 @@ function loadJson<T>(key: string, fallback: T): T {
   }
 }
 
-function loadTodos(): Todo[] {
-  const raw = localStorage.getItem(TODO_KEY)
-
-  if (!raw) {
-    return defaultTodos.map((todo) => ({ ...todo, subtodos: todo.subtodos.map((s) => ({ ...s })) }))
-  }
-
-  try {
-    const parsed = JSON.parse(raw) as unknown
-    return normalizeTodos(parsed)
-  } catch {
-    return defaultTodos.map((todo) => ({ ...todo, subtodos: todo.subtodos.map((s) => ({ ...s })) }))
-  }
+function saveTodos() {
+  void persistTodos(todos.value)
 }
 
-function saveTodos() {
-  localStorage.setItem(TODO_KEY, JSON.stringify(todos.value))
+const syncApiUrl = getSyncApiUrl()
+
+const syncLastAtDisplay = computed(() => {
+  const lastAt = settings.value.syncLastAt
+
+  if (!lastAt) {
+    return 'Never'
+  }
+
+  return new Intl.DateTimeFormat('en', {
+    dateStyle: 'medium',
+    timeStyle: 'short',
+  }).format(lastAt)
+})
+
+async function handleSyncEnabledChange() {
+  await saveSettings()
+
+  if (settings.value.syncEnabled && settings.value.syncToken.trim()) {
+    await initSync()
+    await syncNow()
+    settings.value = await getAppSettings()
+    return
+  }
+
+  stopSyncPolling()
+}
+
+async function handleSyncNow() {
+  await syncNow()
+  settings.value = await getAppSettings()
 }
 
 function handleTaskStatusChange(
@@ -888,6 +938,14 @@ function addTodo() {
 
 function removeTodo(todoId: string) {
   todos.value = todos.value.filter((todo) => todo.id !== todoId)
+
+  if (collapsedTodoIds.value.has(todoId)) {
+    const next = new Set(collapsedTodoIds.value)
+    next.delete(todoId)
+    collapsedTodoIds.value = next
+    saveCollapsedTodoIds(next)
+  }
+
   saveTodos()
 }
 
@@ -1470,12 +1528,14 @@ function removeCustomBackground(index: number) {
               <div v-for="todo in row" :key="todo.id" class="todo-list__column">
                 <TodoCard
                   :todo="todo"
+                  :collapsed="isTodoCollapsed(todo.id)"
                   @status-change="(event) => handleTaskStatusChange(todo, event)"
                   @subtodo-added="saveTodos"
                   @request-edit="(target) => openEditDialog(todo.id, target)"
                   @request-remove="requestRemoveTodo(todo)"
                   @request-remove-subtodo="(subtodo) => requestRemoveSubtodo(todo.id, subtodo)"
                   @archive="archiveTodo(todo)"
+                  @toggle-collapse="toggleTodoCollapse(todo.id)"
                 />
               </div>
             </div>
@@ -1625,6 +1685,69 @@ function removeCustomBackground(index: number) {
                 </button>
               </div>
             </fieldset>
+          </div>
+        </article>
+
+        <article class="glass settings-panel">
+          <div class="panel-heading">
+            <div>
+              <span class="kicker">Settings</span>
+              <h2>Sync</h2>
+            </div>
+          </div>
+
+          <p class="subtle settings-feature-hint">
+            Sync todos, settings, metrics, and the countdown timer across your devices via Cloudflare.
+            Generate a token with <code>openssl rand -hex 32</code> and use the same token on each device.
+          </p>
+
+          <label class="feature-toggle">
+            <Checkbox
+              v-model="settings.syncEnabled"
+              binary
+              class="backdrop-glass"
+              @change="handleSyncEnabledChange"
+            />
+            <span>Enable sync</span>
+          </label>
+
+          <div class="sync-settings" :class="{ 'sync-settings--disabled': !settings.syncEnabled }">
+            <label class="sync-settings__field">
+              <span>Sync token</span>
+              <InputText
+                v-model="settings.syncToken"
+                type="password"
+                class="sync-settings__input backdrop-glass"
+                placeholder="Paste your personal sync token"
+                :disabled="!settings.syncEnabled"
+                @change="saveSettings"
+              />
+            </label>
+
+            <p class="subtle sync-settings__meta">
+              Server: {{ syncApiUrl }}
+            </p>
+            <p class="subtle sync-settings__meta">
+              Last synced: {{ syncLastAtDisplay }}
+            </p>
+            <p v-if="settings.syncLastError" class="sync-settings__error">
+              {{ settings.syncLastError }}
+            </p>
+
+            <Button
+              rounded
+              severity="secondary"
+              outlined
+              :disabled="!settings.syncEnabled || !settings.syncToken.trim()"
+              @click="handleSyncNow"
+            >
+              Sync now
+            </Button>
+
+            <p class="subtle sync-settings__hint">
+              When sync is on, your data is sent to your Cloudflare Worker (encrypted in transit).
+              Timer notifications may fire on each device.
+            </p>
           </div>
         </article>
 

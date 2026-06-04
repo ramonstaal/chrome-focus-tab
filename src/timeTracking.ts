@@ -1,4 +1,5 @@
 import { toDateKey } from './focusMetrics'
+import { scheduleSyncPush } from './sync/hooks'
 
 export interface TimeEntry {
   id: string
@@ -120,7 +121,10 @@ async function saveActiveSession(session: ActiveTimeTracking | null): Promise<vo
   }
 }
 
-async function saveEntries(entries: TimeEntry[]): Promise<void> {
+async function saveEntries(
+  entries: TimeEntry[],
+  options: { skipSync?: boolean } = {},
+): Promise<void> {
   if (hasChromeStorage()) {
     try {
       await chrome.storage.local.set({ [TIME_ENTRIES_KEY]: entries })
@@ -130,6 +134,17 @@ async function saveEntries(entries: TimeEntry[]): Promise<void> {
   }
 
   localStorage.setItem(ENTRIES_FALLBACK_KEY, JSON.stringify(entries))
+
+  if (!options.skipSync) {
+    scheduleSyncPush()
+  }
+}
+
+export async function replaceTimeEntries(
+  entries: TimeEntry[],
+  options: { skipSync?: boolean } = {},
+): Promise<void> {
+  await saveEntries(entries, options)
 }
 
 export async function getActiveTimeTracking(): Promise<ActiveTimeTracking | null> {

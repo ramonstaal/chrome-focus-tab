@@ -1,4 +1,5 @@
 import { toDateKey } from './focusMetrics'
+import { scheduleSyncPush } from './sync/hooks'
 
 export interface ArchivedSubtodo {
   title: string
@@ -70,7 +71,10 @@ export async function addArchivedTodo(input: {
   return record
 }
 
-async function saveArchivedTodos(todos: ArchivedTodo[]): Promise<void> {
+async function saveArchivedTodos(
+  todos: ArchivedTodo[],
+  options: { skipSync?: boolean } = {},
+): Promise<void> {
   if (hasChromeStorage()) {
     try {
       await chrome.storage.local.set({ [ARCHIVED_TODOS_KEY]: todos })
@@ -80,4 +84,15 @@ async function saveArchivedTodos(todos: ArchivedTodo[]): Promise<void> {
   }
 
   localStorage.setItem(ARCHIVED_TODOS_FALLBACK_KEY, JSON.stringify(todos))
+
+  if (!options.skipSync) {
+    scheduleSyncPush()
+  }
+}
+
+export async function replaceArchivedTodos(
+  todos: ArchivedTodo[],
+  options: { skipSync?: boolean } = {},
+): Promise<void> {
+  await saveArchivedTodos(todos, options)
 }

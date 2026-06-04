@@ -122,6 +122,12 @@ src/
   background.js                 Service worker: alarms, break-to-focus transitions, focus-block log
   style.css                     Global styles, glass tokens, layout
   todos.ts                      Todo / Subtodo types, status helpers, legacy-data migration
+  todosStorage.ts               Active todo persistence (chrome.storage + legacy migration)
+  sync/
+    bundle.ts                   Collect/apply sync payload across storage modules
+    coordinator.ts              Pull/push scheduling, polling, conflict handling
+    hooks.ts                    Debounced push hooks for storage modules
+    transport.ts                HTTP client for the Cloudflare Worker
   chromeAlarms.ts               Timer + wall-alarm state and chrome.alarms wrappers
   appSettings.ts                Background selection, uploaded images
   archivedTodos.ts              Storage for completed/archived todos
@@ -142,26 +148,76 @@ src/
     TimeTracking.vue            Time-tracking panel + history
     TimeTrackingStartDialog.vue Prompt to label a session before the timer starts
     TodoCard.vue                Single todo card with subtodos
+
+sync-server/                    Cloudflare Worker + KV sync API (deployed via GitHub Actions)
+  src/index.ts                  GET/PUT /sync endpoints
+  wrangler.toml                 Worker name, KV binding
 ```
 
 ## Data storage
 
-All persisted data uses `chrome.storage.local` when available, with a `localStorage` fallback for the dev preview. Nothing leaves the browser.
+All persisted data uses `chrome.storage.local` when available, with a `localStorage` fallback for the dev preview. With **sync disabled** (default), nothing leaves the browser except weather API requests.
 
 | Key                     | Stored where        | What it is                                                  |
 | ----------------------- | ------------------- | ----------------------------------------------------------- |
-| `focus-new-tab.todos`   | `localStorage`      | Active todos + subtodos (per-device)                        |
+| `todos`                 | `chrome.storage`    | Active todos + subtodos                                     |
 | `archivedTodos`         | `chrome.storage`    | Todos archived after full completion                        |
 | `timer`                 | `chrome.storage`    | Current focus/break timer state (read by the service worker) |
 | `focusBlocks`           | `chrome.storage`    | Completed focus blocks for the metrics calendar              |
 | `breakRecords`          | `chrome.storage`    | Completed break sessions                                    |
-| `completedActions`      | `chrome.storage`    | Todo / subtodo completion events                            |
+| `completedTodoActions` / `completedSubtodoActions` | `chrome.storage` | Todo / subtodo completion events |
 | `timeEntries`           | `chrome.storage`    | Time-tracking history                                       |
-| `timeTrackingSession`   | `chrome.storage`    | Currently-running time-tracking entry, if any               |
-| `appSettings`           | `chrome.storage`    | Background selection + uploaded images                      |
+| `timeTrackingSession`   | `chrome.storage`    | Currently-running time-tracking entry (not synced)          |
+| `appSettings`           | `chrome.storage`    | Background selection, feature toggles, sync settings        |
 | `wallAlarm`             | `chrome.storage`    | Daily alarm time + enabled flag                             |
 
-Legacy todo records (older versions used `done: boolean`) are migrated to the new four-state `status` field on read; nothing needs to be done manually.
+Legacy todo records (older versions used `done: boolean`) are migrated to the new four-state `status` field on read; nothing needs to be done manually. Active todos in `focus-new-tab.todos` (`localStorage`) are migrated to `todos` on first read.
+
+## Sync (optional)
+
+Cross-device sync uses a **Cloudflare Worker + KV** store (`sync-server/`). The extension pushes/pulls a JSON bundle when sync is enabled in **Settings → Sync**.
+
+### Maintainer setup (one time)
+
+1. **Cloudflare**
+   - Note your [Account ID](https://dash.cloudflare.com) (right sidebar).
+   - Create an API token: **My Profile → API Tokens → Edit Cloudflare Workers** template.
+
+2. **KV namespace** (once, from the repo root):
+
+   ```bash
+   cd sync-server
+   npm ci
+   npx wrangler kv namespace create SYNC_KV
+   npx wrangler kv namespace create SYNC_KV --preview
+   ```
+
+   Copy the `id` values into `sync-server/wrangler.toml` under `[[kv_namespaces]]` (replace the placeholder `id`).
+
+3. **GitHub Actions secrets** (repo → Settings → Secrets → Actions):
+
+   | Secret | Value |
+   |--------|--------|
+   | `CLOUDFLARE_API_TOKEN` | Token from step 1 |
+   | `CLOUDFLARE_ACCOUNT_ID` | Account ID from step 1 |
+
+4. **Deploy the Worker** — push changes under `sync-server/` to `main`. The [Deploy sync server](.github/workflows/deploy-sync.yml) workflow runs `wrangler deploy`. Note the URL (e.g. `https://focus-todo-sync.<account>.workers.dev`).
+
+5. **Extension build URL** — set the Worker URL for production builds:
+
+   ```bash
+   cp .env.example .env.production
+   # Edit VITE_SYNC_API_URL to your deployed Worker URL
+   npm run build
+   ```
+
+### User setup (each device)
+
+1. Generate a personal sync token: `openssl rand -hex 32`
+2. Install the extension on each device.
+3. **Settings → Sync** → enable sync, paste the **same token** on every device, click **Sync now**.
+
+Synced: todos, settings (including backgrounds), metrics history, time entries, focus/break timer, wall alarm. Not synced: active time-tracking session.
 
 ## Permissions
 
@@ -169,14 +225,15 @@ Declared in `manifest.json`:
 
 - **`alarms`** — schedule focus / break completion and the daily wall alarm so the timer keeps running with the tab closed.
 - **`notifications`** — fire a notification when a timer or wall alarm finishes.
-- **`storage`** — persist todos, timer state, metrics, and settings across sessions.
+- **`storage`** / **`unlimitedStorage`** — persist todos, timer state, metrics, and settings across sessions.
 - **`chrome_url_overrides.newtab`** — replace the default new tab with this UI.
-
-No host permissions, no network access, no analytics.
+- **Host permissions** — Open-Meteo / BigDataCloud (weather) and `*.workers.dev` (optional sync).
 
 ## Privacy
 
-All data is stored locally on the device. The extension does not make any network requests and has no remote backend.
+By default, all data stays on the device. Weather uses Open-Meteo and BigDataCloud when enabled.
+
+When **sync is enabled**, your todos, settings, metrics, and timer state are sent to **your** Cloudflare Worker (HTTPS). The Worker stores one JSON blob per sync token. Sync is off by default; no account or analytics.
 
 ## License
 

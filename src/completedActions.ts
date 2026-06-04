@@ -1,4 +1,5 @@
 import { toDateKey } from './focusMetrics'
+import { scheduleSyncPush } from './sync/hooks'
 
 export interface CompletedTodoAction {
   id: string
@@ -131,7 +132,10 @@ export async function getCompletedSubtodoActions(): Promise<CompletedSubtodoActi
   }
 }
 
-async function saveCompletedTodoActions(actions: CompletedTodoAction[]): Promise<void> {
+async function saveCompletedTodoActions(
+  actions: CompletedTodoAction[],
+  options: { skipSync?: boolean } = {},
+): Promise<void> {
   if (hasChromeStorage()) {
     try {
       await chrome.storage.local.set({ [COMPLETED_TODOS_KEY]: actions })
@@ -141,9 +145,16 @@ async function saveCompletedTodoActions(actions: CompletedTodoAction[]): Promise
   }
 
   localStorage.setItem(COMPLETED_TODOS_FALLBACK_KEY, JSON.stringify(actions))
+
+  if (!options.skipSync) {
+    scheduleSyncPush()
+  }
 }
 
-async function saveCompletedSubtodoActions(actions: CompletedSubtodoAction[]): Promise<void> {
+async function saveCompletedSubtodoActions(
+  actions: CompletedSubtodoAction[],
+  options: { skipSync?: boolean } = {},
+): Promise<void> {
   if (hasChromeStorage()) {
     try {
       await chrome.storage.local.set({ [COMPLETED_SUBTODOS_KEY]: actions })
@@ -153,6 +164,24 @@ async function saveCompletedSubtodoActions(actions: CompletedSubtodoAction[]): P
   }
 
   localStorage.setItem(COMPLETED_SUBTODOS_FALLBACK_KEY, JSON.stringify(actions))
+
+  if (!options.skipSync) {
+    scheduleSyncPush()
+  }
+}
+
+export async function replaceCompletedTodoActions(
+  actions: CompletedTodoAction[],
+  options: { skipSync?: boolean } = {},
+): Promise<void> {
+  await saveCompletedTodoActions(actions, options)
+}
+
+export async function replaceCompletedSubtodoActions(
+  actions: CompletedSubtodoAction[],
+  options: { skipSync?: boolean } = {},
+): Promise<void> {
+  await saveCompletedSubtodoActions(actions, options)
 }
 
 export async function recordCompletedTodoAction(input: {

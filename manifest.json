@@ -17,12 +17,14 @@
   "permissions": [
     "alarms",
     "notifications",
-    "storage"
+    "storage",
+    "unlimitedStorage"
   ],
   "host_permissions": [
     "https://api.open-meteo.com/*",
     "https://geocoding-api.open-meteo.com/*",
-    "https://api.bigdatacloud.net/*"
+    "https://api.bigdatacloud.net/*",
+    "https://*.workers.dev/*"
   ],
   "background": {
     "service_worker": "src/background.js",

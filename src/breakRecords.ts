@@ -1,5 +1,6 @@
 import { toDateKey } from './focusMetrics'
 import type { BreakKind, BreakState, TimerState } from './chromeAlarms'
+import { scheduleSyncPush } from './sync/hooks'
 
 export interface BreakRecord {
   id: string
@@ -101,7 +102,10 @@ export async function getBreakRecords(): Promise<BreakRecord[]> {
   }
 }
 
-async function saveBreakRecords(records: BreakRecord[]): Promise<void> {
+async function saveBreakRecords(
+  records: BreakRecord[],
+  options: { skipSync?: boolean } = {},
+): Promise<void> {
   if (hasChromeStorage()) {
     try {
       await chrome.storage.local.set({ [BREAK_RECORDS_KEY]: records })
@@ -111,6 +115,17 @@ async function saveBreakRecords(records: BreakRecord[]): Promise<void> {
   }
 
   localStorage.setItem(BREAK_RECORDS_FALLBACK_KEY, JSON.stringify(records))
+
+  if (!options.skipSync) {
+    scheduleSyncPush()
+  }
+}
+
+export async function replaceBreakRecords(
+  records: BreakRecord[],
+  options: { skipSync?: boolean } = {},
+): Promise<void> {
+  await saveBreakRecords(records, options)
 }
 
 export async function addBreakRecord(input: {

@@ -1,3 +1,5 @@
+import { scheduleSyncPush } from './sync/hooks'
+
 export interface FocusBlock {
   id: string
   completedAt: number
@@ -180,7 +182,10 @@ function isFocusSessionRecordable(timer: FocusTimerSnapshot, endedAt = Date.now(
   return getFocusSessionActualMs(timer, endedAt) > 0
 }
 
-async function saveFocusBlocks(blocks: FocusBlock[]): Promise<void> {
+async function saveFocusBlocks(
+  blocks: FocusBlock[],
+  options: { skipSync?: boolean } = {},
+): Promise<void> {
   if (hasChromeStorage()) {
     try {
       await chrome.storage.local.set({ [FOCUS_BLOCKS_KEY]: blocks })
@@ -190,6 +195,17 @@ async function saveFocusBlocks(blocks: FocusBlock[]): Promise<void> {
   }
 
   localStorage.setItem(FOCUS_BLOCKS_FALLBACK_KEY, JSON.stringify(blocks))
+
+  if (!options.skipSync) {
+    scheduleSyncPush()
+  }
+}
+
+export async function replaceFocusBlocks(
+  blocks: FocusBlock[],
+  options: { skipSync?: boolean } = {},
+): Promise<void> {
+  await saveFocusBlocks(blocks, options)
 }
 
 export async function recordCompletedFocusBlock(
