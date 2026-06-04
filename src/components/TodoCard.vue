@@ -78,23 +78,56 @@ function setSubtodoStatus(subtodo: Subtodo, newStatus: TaskStatus) {
   })
 }
 
-function addSubtodo() {
-  const title = subtodoDraft.value.trim()
+function splitSubtodoLines(text: string): string[] {
+  return text
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0)
+}
 
-  if (!title) {
-    return
-  }
-
-  const subtodo: Subtodo = {
+function createSubtodo(title: string): Subtodo {
+  return {
     id: crypto.randomUUID(),
     title,
     status: DEFAULT_STATUS,
     notes: '',
   }
+}
 
-  props.todo.subtodos.push(subtodo)
+function addSubtodosFromLines(lines: string[]) {
+  for (const title of lines) {
+    const subtodo = createSubtodo(title)
+    props.todo.subtodos.push(subtodo)
+    emit('subtodo-added', subtodo)
+  }
+}
+
+function addSubtodo() {
+  const lines = splitSubtodoLines(subtodoDraft.value)
+
+  if (lines.length === 0) {
+    return
+  }
+
+  addSubtodosFromLines(lines)
   subtodoDraft.value = ''
-  emit('subtodo-added', subtodo)
+}
+
+function handleSubtodoPaste(event: ClipboardEvent) {
+  const pasted = event.clipboardData?.getData('text/plain') ?? ''
+  const pastedLines = splitSubtodoLines(pasted)
+
+  if (pastedLines.length <= 1) {
+    return
+  }
+
+  event.preventDefault()
+
+  const draftLine = subtodoDraft.value.trim()
+  const lines = draftLine ? [draftLine, ...pastedLines] : pastedLines
+
+  addSubtodosFromLines(lines)
+  subtodoDraft.value = ''
 }
 </script>
 
@@ -234,8 +267,9 @@ function addSubtodo() {
       <div class="todo-input-wrap">
         <InputText
           v-model="subtodoDraft"
-          placeholder="Add a subtodo"
+          placeholder="Add a subtodo (paste multiple lines)"
           class="todo-input backdrop-glass"
+          @paste="handleSubtodoPaste"
         />
         <button class="todo-input-addon" type="submit" aria-label="Add subtodo">
           <Plus :size="14" />
