@@ -5,9 +5,9 @@
     0 0 20px rgba(0, 0, 0, 0.5),
     0 0 40px rgba(0, 0, 0, 0.28),
     0 2px 14px rgba(0, 0, 0, 0.38);
-  --todo-card-bg: rgba(0, 0, 0, 0.28);
-  --todo-card-bg-hover: rgba(0, 0, 0, 0.38);
-  --todo-card-bg-strong: rgba(0, 0, 0, 0.44);
+  --todo-card-bg: rgba(0, 0, 0, 0.38);
+  --todo-card-bg-hover: rgba(0, 0, 0, 0.58);
+  --todo-card-bg-strong: rgba(0, 0, 0, 0.64);
   --subtodo-list-bg: rgba(0, 0, 0, 0.2);
   --panel: var(--todo-card-bg);
   --panel-strong: var(--todo-card-bg-strong);
@@ -1072,12 +1072,12 @@ input {
 
 .subtodo-list {
   display: grid;
-  gap: 7px;
-  margin: 10px 0 2px 16px;
-  padding: 8px 10px;
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  border-radius: 12px;
-  background: var(--subtodo-list-bg);
+  gap: 10px;
+  margin: 10px 0 2px 44px;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
 }
 
 .subtodo-row {

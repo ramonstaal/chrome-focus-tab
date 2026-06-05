@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { computed } from 'vue'
+import SelectButton from 'primevue/selectbutton'
 import { Pencil, Plus } from '@lucide/vue'
 import type { TodoCategory } from '../categories'
 
@@ -14,6 +16,15 @@ const emit = defineEmits<{
   edit: [category: TodoCategory]
 }>()
 
+const selectedCategoryId = computed({
+  get: () => props.activeCategoryId,
+  set: (categoryId: string) => emit('select', categoryId),
+})
+
+const activeCategory = computed(
+  () => props.categories.find((category) => category.id === props.activeCategoryId) ?? null,
+)
+
 function countFor(categoryId: string): number {
   return props.todoCounts[categoryId] ?? 0
 }
@@ -21,39 +32,37 @@ function countFor(categoryId: string): number {
 
 <template>
   <nav class="todo-category-tabs" aria-label="Todo categories">
-    <div class="todo-category-tabs__list" role="tablist">
-      <div
-        v-for="category in categories"
-        :key="category.id"
-        class="todo-category-tabs__item"
-        :class="{ 'todo-category-tabs__item--active': category.id === activeCategoryId }"
-      >
-        <button
-          type="button"
-          role="tab"
-          class="todo-category-tabs__tab"
-          :class="{ 'todo-category-tabs__tab--active': category.id === activeCategoryId }"
-          :aria-selected="category.id === activeCategoryId"
-          @click="emit('select', category.id)"
-          @dblclick="emit('edit', category)"
+    <SelectButton
+      v-model="selectedCategoryId"
+      :options="categories"
+      option-label="name"
+      option-value="id"
+      data-key="id"
+      class="todo-category-tabs__select"
+      aria-label="Todo categories"
+    >
+      <template #option="slotProps">
+        <span
+          class="todo-category-tabs__option"
+          @dblclick.stop="emit('edit', slotProps.option)"
         >
-          <span class="todo-category-tabs__label">{{ category.name }}</span>
-          <span v-if="countFor(category.id) > 0" class="todo-category-tabs__count">
-            {{ countFor(category.id) }}
+          <span class="todo-category-tabs__label">{{ slotProps.option.name }}</span>
+          <span v-if="countFor(slotProps.option.id) > 0" class="todo-category-tabs__count">
+            {{ countFor(slotProps.option.id) }}
           </span>
-        </button>
-        <button
-          v-if="category.id === activeCategoryId"
-          type="button"
-          class="todo-category-tabs__edit"
-          aria-label="Edit category"
-          title="Edit category"
-          @click="emit('edit', category)"
-        >
-          <Pencil :size="11" />
-        </button>
-      </div>
-    </div>
+        </span>
+      </template>
+    </SelectButton>
+    <button
+      v-if="activeCategory"
+      type="button"
+      class="todo-category-tabs__edit"
+      aria-label="Edit category"
+      title="Edit category"
+      @click="emit('edit', activeCategory)"
+    >
+      <Pencil :size="11" />
+    </button>
     <button
       type="button"
       class="todo-category-tabs__add"
@@ -70,62 +79,94 @@ function countFor(categoryId: string): number {
 .todo-category-tabs {
   display: flex;
   align-items: center;
+  justify-content: flex-start;
+  flex-wrap: wrap;
   gap: 8px;
   margin-bottom: 14px;
 }
 
-.todo-category-tabs__list {
-  display: flex;
-  flex: 1;
-  min-width: 0;
-  gap: 6px;
+.todo-category-tabs__select {
+  display: inline-flex;
+  flex: 0 1 auto;
+  max-width: 100%;
   overflow-x: auto;
-  padding-bottom: 2px;
+  border-radius: 999px;
+  background: transparent;
+  border: 0;
+  box-shadow: none;
   scrollbar-width: thin;
 }
 
-.todo-category-tabs__item {
-  display: inline-flex;
-  align-items: center;
-  flex: 0 0 auto;
-  gap: 2px;
+.todo-category-tabs__select.p-selectbutton .p-togglebutton:first-child {
+  border-start-start-radius: 999px;
+  border-end-start-radius: 999px;
 }
 
-.todo-category-tabs__item--active .todo-category-tabs__tab {
-  border-top-right-radius: 8px;
-  border-bottom-right-radius: 8px;
+.todo-category-tabs__select.p-selectbutton .p-togglebutton:last-child {
+  border-start-end-radius: 999px;
+  border-end-end-radius: 999px;
 }
 
-.todo-category-tabs__tab {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
+.todo-category-tabs__select.p-selectbutton .p-togglebutton:first-child .p-togglebutton-content {
+  border-start-start-radius: 999px;
+  border-end-start-radius: 999px;
+}
+
+.todo-category-tabs__select.p-selectbutton .p-togglebutton:last-child .p-togglebutton-content {
+  border-start-end-radius: 999px;
+  border-end-end-radius: 999px;
+}
+
+.todo-category-tabs__select .p-togglebutton .p-togglebutton-content {
+  background: transparent;
+}
+
+.todo-category-tabs__select .p-togglebutton {
   flex: 0 0 auto;
-  padding: 7px 12px;
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.03);
   color: var(--muted);
-  font: inherit;
-  font-size: 12px;
-  letter-spacing: 0.02em;
-  cursor: pointer;
+  background: var(--glass-bg);
+  border: 1px solid var(--glass-border);
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+  backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+  box-shadow:
+    inset 0 1px 0 var(--glass-highlight),
+    var(--glass-shadow);
   transition:
     background 160ms ease,
     border-color 160ms ease,
-    color 160ms ease;
+    color 160ms ease,
+    box-shadow 160ms ease,
+    -webkit-backdrop-filter 160ms ease,
+    backdrop-filter 160ms ease;
 }
 
-.todo-category-tabs__tab:hover {
+.todo-category-tabs__select .p-togglebutton:not(.p-togglebutton-checked):not([data-p-checked='true']):hover {
   color: var(--text);
-  background: rgba(255, 255, 255, 0.08);
-  border-color: rgba(255, 255, 255, 0.2);
+  background: var(--glass-bg-hover);
+  border-color: var(--glass-border-hover);
+  box-shadow:
+    inset 0 1px 0 var(--glass-highlight-hover),
+    var(--glass-shadow-hover);
 }
 
-.todo-category-tabs__tab--active {
+.todo-category-tabs__select .p-togglebutton.p-togglebutton-checked,
+.todo-category-tabs__select .p-togglebutton[data-p-checked='true'],
+.todo-category-tabs__select .p-togglebutton.p-togglebutton-checked:hover,
+.todo-category-tabs__select .p-togglebutton[data-p-checked='true']:hover {
   color: var(--text);
-  background: rgba(255, 255, 255, 0.14);
-  border-color: rgba(255, 255, 255, 0.34);
+  background: var(--glass-selected-bg);
+  border-color: var(--glass-selected-border);
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+  backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+  box-shadow:
+    inset 0 1px 0 var(--glass-highlight-hover),
+    var(--glass-shadow);
+}
+
+.todo-category-tabs__option {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
 }
 
 .todo-category-tabs__label {
@@ -146,7 +187,8 @@ function countFor(categoryId: string): number {
   text-align: center;
 }
 
-.todo-category-tabs__tab--active .todo-category-tabs__count {
+.todo-category-tabs__select .p-togglebutton-checked .todo-category-tabs__count,
+.todo-category-tabs__select .p-togglebutton[data-p-checked='true'] .todo-category-tabs__count {
   color: var(--text);
   background: rgba(255, 255, 255, 0.12);
 }
